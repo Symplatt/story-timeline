@@ -18,7 +18,12 @@ const controls = [
   { mark: 'bold', command: 'bold', label: '加粗', icon: Bold },
   { mark: 'underline', command: 'underline', label: '下划线', icon: Underline },
   { mark: 'italic', command: 'italic', label: '斜体', icon: Italic },
-  { mark: 'strike', command: 'strikeThrough', label: '删除线', icon: Strikethrough },
+  {
+    mark: 'strike',
+    command: 'strikeThrough',
+    label: '删除线',
+    icon: Strikethrough,
+  },
 ]
 onMounted(() => {
   const tags: Record<Mark, string> = {
@@ -68,7 +73,8 @@ function read() {
     if (tags[node.tagName]) next.push(tags[node.tagName])
     for (const m of ['bold', 'underline', 'italic', 'strike', 'spoiler'] as Mark[])
       if (node.classList.contains(m)) next.push(m)
-    if (node.style.fontWeight === 'bold' || Number(node.style.fontWeight) >= 600) next.push('bold')
+    if (node.style.fontWeight === 'bold' || Number(node.style.fontWeight) >= 600)
+      next.push('bold')
     if (node.style.fontStyle === 'italic') next.push('italic')
     if (node.style.textDecoration.includes('underline')) next.push('underline')
     if (node.style.textDecoration.includes('line-through')) next.push('strike')
@@ -180,7 +186,7 @@ function paste(e: ClipboardEvent) {
       role="textbox"
       aria-label="事件内容"
       aria-multiline="true"
-      data-placeholder="写下这个时刻发生的事…"
+      data-placeholder="输入事件内容"
       @input="read"
       @paste="paste"
       @drop.prevent

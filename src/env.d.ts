@@ -3,9 +3,6 @@ import type { Timeline, Summary, Settings } from './model'
 declare global {
   interface Window {
     desktop?: {
-      exportMarkdown: (data: string, title: string) => Promise<string | null>
-      startPng: (count: number, title: string) => Promise<string | null>
-      writePng: (session: string, index: number, data: ArrayBuffer) => Promise<string>
       load: () => Promise<{
         timelines: Summary[]
         settings: Partial<Settings>

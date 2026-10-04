@@ -8,8 +8,6 @@ import {
   Download,
   Upload,
   Save,
-  PanelRightClose,
-  PanelRightOpen,
   ChevronDown,
   Pencil,
   Trash2,
@@ -24,7 +22,7 @@ import {
   Building2,
   BookOpen,
   Info,
-  ArrowUpRight,
+  Flag,
   AlertCircle,
 } from 'lucide-vue-next'
 import {
@@ -34,7 +32,8 @@ import {
   newTimeline,
   newNode,
   summary,
-  compareNodes,
+  createNodeComparator,
+  mergeTimeOrder,
   matches,
   emptyFilters,
   sortedCharacters,
@@ -44,7 +43,7 @@ import {
   uid,
   themes,
   timeLabels,
-  displayDate,
+  normalizeSettings,
   natural,
   type Timeline,
   type TimelineNode,
@@ -52,10 +51,10 @@ import {
   type Settings,
 } from './model'
 import { storage } from './storage'
-import { markdown, pngPage, pngPages } from './export'
 import TimelineView from './components/TimelineView.vue'
-import RichText from './components/RichText.vue'
+import HierarchyFilter from './components/HierarchyFilter.vue'
 import NodeForm from './components/NodeForm.vue'
+import TimeOrderEditor from './components/TimeOrderEditor.vue'
 import { version } from '../package.json'
 
 const settings = ref<Settings>(defaults()),
@@ -86,12 +85,15 @@ const confirmTitle = ref(''),
   confirmCopy = ref('')
 let confirmAction: () => Promise<void> = async () => {}
 const modalTitle = computed(() =>
-  modal.value === 'confirm' ? confirmTitle.value : titles[modal.value] || '序时',
+  modal.value === 'confirm'
+    ? confirmTitle.value
+    : modal.value === 'node'
+      ? isNew.value
+        ? '添加节点'
+        : '编辑节点'
+      : titles[modal.value] || '序时',
 )
-const exportScope = ref('filtered'),
-  exporting = ref(false),
-  exportProgress = ref(''),
-  mutationBusy = ref(false)
+const mutationBusy = ref(false)
 async function exclusive(action: () => Promise<void>) {
   if (mutationBusy.value) return
   mutationBusy.value = true
@@ -102,7 +104,9 @@ async function exclusive(action: () => Promise<void>) {
   }
 }
 function closeModal() {
-  if (!exporting.value && !mutationBusy.value) modal.value = ''
+  if (mutationBusy.value) return
+  if (modal.value === 'node') cancelEdit()
+  else modal.value = ''
 }
 let revision = 0,
   saved = 0,
@@ -112,13 +116,22 @@ let revision = 0,
   toastTimer: ReturnType<typeof setTimeout>,
   saving: Promise<void> | undefined
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
-const selected = computed(() => timeline.value?.nodes.find((n) => n.id === selectedId.value))
-const ordered = computed(() => [...(timeline.value?.nodes || [])].sort(compareNodes))
+const ordered = computed(() =>
+  [...(timeline.value?.nodes || [])].sort(createNodeComparator(timeline.value?.timeOrder)),
+)
 const visible = computed(() => ordered.value.filter((n) => matches(n, filters.value)))
 const characters = computed(() => sortedCharacters(timeline.value?.characters || []))
-const countries = computed(() =>
-  [...new Set(timeline.value?.nodes.map((n) => n.country).filter(Boolean) || [])].sort(
-    natural.compare,
+const countries = computed(() => sortedCharacters(timeline.value?.countries || []))
+const countryQuery = ref(''),
+  characterQuery = ref('')
+const visibleCountries = computed(() =>
+  countries.value.filter((name) =>
+    name.toLocaleLowerCase().includes(countryQuery.value.toLocaleLowerCase()),
+  ),
+)
+const visibleCharacters = computed(() =>
+  characters.value.filter((name) =>
+    name.toLocaleLowerCase().includes(characterQuery.value.toLocaleLowerCase()),
   ),
 )
 const filteredCatalog = computed(() =>
@@ -145,10 +158,12 @@ const hierarchyOptions = computed(
 )
 const filterCount = computed(
   () =>
-    filters.value.location.filter(Boolean).length +
-    filters.value.organization.filter(Boolean).length +
+    filters.value.location.values.length +
+    filters.value.location.levels.length +
+    filters.value.organization.values.length +
+    filters.value.organization.levels.length +
     Number(!!filters.value.query) +
-    Number(!!filters.value.country) +
+    filters.value.countries.length +
     Number(!!filters.value.character) +
     Number(!filters.value.showNoLocation) +
     Number(!filters.value.showNoOrganization),
@@ -276,7 +291,7 @@ function restoreDraft() {
     editing.value = true
     editorKey.value++
     selectedId.value = d.isNew ? '' : d.node.id
-    settings.value.inspector = true
+    modal.value = 'node'
   }
 }
 function addNode() {
@@ -289,51 +304,56 @@ function addNode() {
   isNew.value = true
   editing.value = true
   editorKey.value++
-  settings.value.inspector = true
-  settings.value.draft = { timelineId: timeline.value.id, node: clone(draft.value), isNew: true }
+  modal.value = 'node'
+  settings.value.draft = {
+    timelineId: timeline.value.id,
+    node: clone(draft.value),
+    isNew: true,
+  }
 }
 function chooseNode(node: TimelineNode) {
-  if (editing.value && isNew.value) {
-    notify('请先完成或取消正在添加的节点')
-    return
-  }
-  if (editing.value && !plainText(draft.value?.event || []).trim()) {
-    notify('请先补全事件，或结束编辑放弃空事件修改')
-    return
-  }
-  editing.value = false
   selectedId.value = node.id
-  settings.value.inspector = true
-  delete settings.value.draft
 }
-function editNode() {
-  if (!selected.value) return
-  draft.value = clone(selected.value)
+function editNode(node: TimelineNode) {
+  selectedId.value = node.id
+  draft.value = clone(node)
   isNew.value = false
   editing.value = true
   editorKey.value++
+  modal.value = 'node'
 }
 function changeDraft(node: TimelineNode) {
   draft.value = node
-  settings.value.draft = { timelineId: timeline.value!.id, node: clone(node), isNew: isNew.value }
-  if (!isNew.value && plainText(node.event).trim()) applyNode(node, false)
+  settings.value.draft = {
+    timelineId: timeline.value!.id,
+    node: clone(node),
+    isNew: isNew.value,
+  }
+  if (!isNew.value && plainText(node.event).trim()) applyNode(node, false, false)
 }
-function applyNode(node: TimelineNode, append: boolean) {
+function applyNode(node: TimelineNode, append: boolean, remember = true) {
   const t = timeline.value!
   const normalized = clone(node)
   normalized.time = normalized.time.map((v) => v.trim()) as TimelineNode['time']
+  if (normalized.endTime)
+    normalized.endTime = normalized.endTime.map((v) => v.trim()) as TimelineNode['time']
   normalized.location = normalized.location.map((v) => v.trim()) as TimelineNode['location']
   normalized.organization = normalized.organization.map((v) =>
     v.trim(),
   ) as TimelineNode['organization']
-  normalized.country = normalized.country.trim()
   if (append && t.nodes.length >= MAX_NODES) throw new Error('本条时间轴已达到 10000 个节点')
   modify({
     ...t,
     nodes: append
       ? [...t.nodes, normalized]
       : t.nodes.map((n) => (n.id === node.id ? normalized : n)),
-    characters: sortedCharacters([...t.characters, ...node.characters]),
+    // Keep autosaving the node, but only register completed labels. Otherwise
+    // every keystroke while editing creates a spurious country or era name.
+    characters: remember
+      ? sortedCharacters([...t.characters, ...node.characters])
+      : t.characters,
+    countries: remember ? sortedCharacters([...t.countries, ...node.countries]) : t.countries,
+    timeOrder: remember ? mergeTimeOrder(t.timeOrder, [normalized]) : t.timeOrder,
   })
 }
 async function finishNode(node: TimelineNode) {
@@ -342,14 +362,18 @@ async function finishNode(node: TimelineNode) {
   editing.value = false
   delete settings.value.draft
   await flush()
+  modal.value = ''
   await nextTick()
   if (visible.value.some((n) => n.id === node.id)) view.value?.reveal(node.id)
   else notify('节点已保存；当前筛选条件隐藏了此节点')
 }
 function cancelEdit() {
+  if (!isNew.value && draft.value && plainText(draft.value.event).trim())
+    applyNode(draft.value, false)
   editing.value = false
   draft.value = undefined
   delete settings.value.draft
+  modal.value = ''
 }
 function openProject(create = false) {
   projectNew.value = create
@@ -387,13 +411,13 @@ async function finishProject() {
   modal.value = ''
   await flush()
 }
-function askDeleteNode() {
+function askDeleteNode(node: TimelineNode) {
   confirmTitle.value = '删除这个节点？'
-  confirmCopy.value = '该节点会从当前时间轴移除，已有角色清单保留。'
+  confirmCopy.value = '该节点会从当前时间轴移除，已有国家和角色清单保留。'
   confirmAction = async () => {
     modify({
       ...timeline.value!,
-      nodes: timeline.value!.nodes.filter((n) => n.id !== selectedId.value),
+      nodes: timeline.value!.nodes.filter((n) => n.id !== node.id),
     })
     selectedId.value = ''
     editing.value = false
@@ -468,7 +492,12 @@ async function exportJson(all: boolean) {
   if (all) {
     for (const t of catalog.value) timelines.push(validateTimeline(await storage.read(t.id)))
   } else timelines.push(clone(timeline.value!))
-  const data = { format: 'xushi', version: 1, exportedAt: new Date().toISOString(), timelines },
+  const data = {
+      format: 'xushi',
+      version: 3,
+      exportedAt: new Date().toISOString(),
+      timelines,
+    },
     title = all ? '序时-完整时间轴库' : timeline.value!.title
   if (window.desktop) {
     const file = await window.desktop.exportJson(data, title)
@@ -485,49 +514,6 @@ async function exportJson(all: boolean) {
     notify('JSON 备份已生成')
   }
   modal.value = ''
-}
-function download(bytes: BlobPart, name: string, type: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-async function exportDocument(format: 'png' | 'md') {
-  if (!timeline.value || exporting.value) return
-  exporting.value = true
-  exportProgress.value = '准备导出…'
-  try {
-    await flush()
-    const t = clone(timeline.value),
-      nodes = clone(exportScope.value === 'filtered' ? visible.value : ordered.value),
-      config = clone(settings.value)
-    if (format === 'md') {
-      const content = markdown(t, nodes, config)
-      if (window.desktop) {
-        const file = await window.desktop.exportMarkdown(content, t.title)
-        if (!file) return
-      } else download(content, t.title + '.md', 'text/markdown')
-      notify('Markdown 已导出，包含完整事件')
-    } else {
-      const count = pngPages(nodes.length),
-        session = window.desktop ? await window.desktop.startPng(count, t.title) : 'browser'
-      if (!session) return
-      for (let i = 0; i < count; i++) {
-        exportProgress.value = `正在导出第 ${i + 1} / ${count} 张图片…`
-        const bytes = await pngPage(t, nodes, config, i)
-        if (window.desktop) await window.desktop.writePng(session, i, bytes)
-        else download(bytes, `${t.title}-${String(i + 1).padStart(3, '0')}.png`, 'image/png')
-        await new Promise((resolve) => setTimeout(resolve, 0))
-      }
-      notify(`已导出 ${count} 张 PNG 图片`)
-    }
-    modal.value = ''
-  } finally {
-    exporting.value = false
-    exportProgress.value = ''
-  }
 }
 let previousFocus: HTMLElement | null = null
 watch(modal, async (value) => {
@@ -575,11 +561,7 @@ onMounted(async () => {
   try {
     const loaded = await storage.load()
     catalog.value = loaded.timelines
-    const config = { ...defaults(), ...loaded.settings }
-    if (!themes.some((t) => t.id === config.theme)) config.theme = 'grass'
-    if (!Array.isArray(config.visibleTime) || config.visibleTime.length !== 5)
-      config.visibleTime = defaults().visibleTime
-    config.dateFormat = config.dateFormat === 'chinese' ? 'chinese' : 'dots'
+    const config = normalizeSettings(loaded.settings)
     settings.value = config
     if (catalog.value.length) {
       const id = catalog.value.some((t) => t.id === config.activeId)
@@ -627,10 +609,13 @@ onUnmounted(() => {
       </div>
       <div class="header-actions">
         <button class="text-button" :disabled="!ready || !!blocked" @click="run(importFile)">
-          <Download :size="15" />导入 JSON</button
-        ><button class="text-button" :disabled="!catalog.length" @click="modal = 'export'">
-          <Upload :size="15" />导出</button
-        ><span class="brand-divider" /><button
+          <Download :size="15" />导入 JSON
+        </button>
+        <button class="text-button" :disabled="!catalog.length" @click="modal = 'export'">
+          <Upload :size="15" />导出 JSON
+        </button>
+        <span class="brand-divider" />
+        <button
           class="save-button"
           :disabled="!ready || !!blocked"
           @click="
@@ -640,26 +625,23 @@ onUnmounted(() => {
             })
           "
         >
-          <Save :size="14" />保存</button
-        ><button class="icon-button" title="使用帮助" aria-label="使用帮助" @click="modal = 'help'">
-          <Info :size="18" /></button
-        ><button
+          <Save :size="15" />保存
+        </button>
+        <button
           class="icon-button"
           title="显示设置"
           aria-label="显示设置"
           @click="modal = 'settings'"
         >
-          <SlidersHorizontal :size="18" /></button
-        ><button
+          <SlidersHorizontal :size="18" />
+        </button>
+        <button
           class="icon-button"
-          :title="settings.inspector ? '收起详情' : '展开详情'"
-          :aria-label="settings.inspector ? '收起详情' : '展开详情'"
-          @click="settings.inspector = !settings.inspector"
+          title="认识序时"
+          aria-label="认识序时"
+          @click="modal = 'help'"
         >
-          <PanelRightClose v-if="settings.inspector" :size="18" /><PanelRightOpen
-            v-else
-            :size="18"
-          />
+          <Info :size="18" />
         </button>
       </div>
     </header>
@@ -672,8 +654,8 @@ onUnmounted(() => {
     <div v-else class="workspace" :aria-busy="loading || !ready">
       <aside class="sidebar">
         <div class="project-card">
-          <button class="project-title" @click="modal = 'library'">
-            <span>{{ timeline?.title || '我的时间轴库' }}</span
+          <button class="project-title" aria-label="切换时间轴" @click="modal = 'library'">
+            <span>{{ timeline?.title || '选择时间轴' }}</span
             ><ChevronDown :size="16" /></button
           ><button
             v-if="timeline"
@@ -685,257 +667,174 @@ onUnmounted(() => {
             <Pencil :size="15" />
           </button>
         </div>
-        <div class="sidebar-tools">
-          <button class="toolbar-button" @click="modal = 'library'">
-            <FolderOpen :size="15" />时间轴库 <span class="count">{{ catalog.length }} / 1000</span>
-          </button>
-        </div>
-        <template v-if="timeline"
-          ><div class="sidebar-scroll">
-            <div class="section-heading">
-              <Filter :size="14" /><span>筛选事件</span
-              ><span v-if="filterCount" class="count">{{ filterCount }}</span
+        <div v-if="timeline" class="sidebar-scroll">
+          <div class="section-heading">
+            <Filter :size="15" /><span>筛选事件</span
+            ><span v-if="filterCount" class="count">{{ filterCount }}</span
+            ><button
+              class="icon-button small"
+              title="清除筛选"
+              aria-label="清除筛选"
+              @click="filters = emptyFilters()"
+            >
+              <RotateCcw :size="14" />
+            </button>
+          </div>
+          <div class="search-box">
+            <Search :size="15" /><input
+              v-model="filters.query"
+              aria-label="搜索事件"
+              placeholder="搜索事件、时间、角色…"
+            /><button
+              v-if="filters.query"
+              class="icon-button small"
+              aria-label="清除搜索"
+              @click="filters.query = ''"
+            >
+              <X :size="13" />
+            </button>
+          </div>
+          <HierarchyFilter
+            v-model="filters.location"
+            v-model:show-empty="filters.showNoLocation"
+            label="地点"
+            :options="hierarchyOptions.location"
+            ><MapPin :size="15"
+          /></HierarchyFilter>
+          <HierarchyFilter
+            v-model="filters.organization"
+            v-model:show-empty="filters.showNoOrganization"
+            label="组织"
+            :options="hierarchyOptions.organization"
+            ><Building2 :size="15"
+          /></HierarchyFilter>
+          <div class="filter-section">
+            <button
+              class="section-heading collapse-toggle"
+              :aria-expanded="settings.countriesOpen"
+              @click="settings.countriesOpen = !settings.countriesOpen"
+            >
+              <Flag :size="15" /><span>已有国家</span
+              ><span class="count">{{ countries.length }}</span
+              ><ChevronDown :size="14" :class="{ rotated: settings.countriesOpen }" />
+            </button>
+            <div v-if="filters.countries.length" class="active-filter">
+              <span>{{ filters.countries.join(' · ') }}</span
               ><button
                 class="icon-button small"
-                title="清除筛选"
-                aria-label="清除筛选"
-                @click="filters = emptyFilters()"
-              >
-                <RotateCcw :size="14" />
-              </button>
-            </div>
-            <div class="search-box">
-              <Search :size="15" /><input
-                v-model="filters.query"
-                aria-label="搜索事件"
-                placeholder="搜索事件、时间、角色…"
-              /><button
-                v-if="filters.query"
-                class="icon-button small"
-                aria-label="清除搜索"
-                @click="filters.query = ''"
+                aria-label="清除国家筛选"
+                @click="filters.countries = []"
               >
                 <X :size="13" />
               </button>
             </div>
-            <details class="filter-section" open>
-              <summary><MapPin :size="14" />地点 <small>1 级最高</small></summary>
-              <label v-for="i in 5" :key="i" class="filter-level"
-                ><span>{{ i }} 级</span
-                ><select v-model="filters.location[i - 1]" :aria-label="`筛选地点${i}级`">
-                  <option value="">全部</option>
-                  <option v-for="value in hierarchyOptions.location[i - 1]" :key="value">
-                    {{ value }}
-                  </option>
-                </select></label
-              ><label class="check-label"
-                ><input type="checkbox" v-model="filters.showNoLocation" />显示无地点事件</label
-              >
-            </details>
-            <details class="filter-section">
-              <summary><Building2 :size="14" />组织 <small>1 级最高</small></summary>
-              <label v-for="i in 5" :key="i" class="filter-level"
-                ><span>{{ i }} 级</span
-                ><select v-model="filters.organization[i - 1]" :aria-label="`筛选组织${i}级`">
-                  <option value="">全部</option>
-                  <option v-for="value in hierarchyOptions.organization[i - 1]" :key="value">
-                    {{ value }}
-                  </option>
-                </select></label
-              ><label class="check-label"
-                ><input type="checkbox" v-model="filters.showNoOrganization" />显示无组织事件</label
-              >
-            </details>
-            <label class="country-filter"
-              >国家<select v-model="filters.country" aria-label="筛选国家">
-                <option value="">全部国家</option>
-                <option v-for="country in countries" :key="country">{{ country }}</option>
-              </select></label
-            >
-            <div class="character-section">
-              <button
-                class="section-heading collapse-toggle"
-                :aria-expanded="settings.charactersOpen"
-                @click="settings.charactersOpen = !settings.charactersOpen"
-              >
-                <Users :size="14" /><span>已有角色</span
-                ><span class="count">{{ characters.length }}</span
-                ><ChevronDown :size="14" :class="{ rotated: settings.charactersOpen }" />
-              </button>
-              <div v-if="filters.character" class="active-character">
-                <span>{{ filters.character }}</span
-                ><button
-                  class="icon-button small"
-                  aria-label="清除角色筛选"
-                  @click="filters.character = ''"
+            <div v-if="settings.countriesOpen" class="filter-body">
+              <button class="inline-button" @click="filters.countries = []">全部国家</button>
+              <input
+                v-if="countries.length > 8"
+                v-model="countryQuery"
+                aria-label="搜索国家"
+                placeholder="搜索国家…"
+              />
+              <div class="filter-values">
+                <label v-for="name in visibleCountries" :key="name" class="check-label"
+                  ><input
+                    v-model="filters.countries"
+                    type="checkbox"
+                    :value="name"
+                    :aria-label="'筛选国家 ' + name"
+                  /><span>{{ name }}</span></label
                 >
-                  <X :size="13" />
-                </button>
-              </div>
-              <div v-if="settings.charactersOpen" class="character-list">
-                <button :class="{ active: !filters.character }" @click="filters.character = ''">
-                  全部角色</button
-                ><button
-                  v-for="name in characters"
-                  :key="name"
-                  :class="{ active: filters.character === name }"
-                  @click="filters.character = name"
-                >
-                  {{ name }}
-                </button>
-                <p v-if="!characters.length" class="muted">添加事件时输入角色，以空格分隔。</p>
+                <p v-if="!visibleCountries.length" class="muted">
+                  {{ countryQuery ? '没有匹配项' : '暂无国家' }}
+                </p>
               </div>
             </div>
           </div>
-          <div class="sidebar-bottom">
+          <div class="filter-section">
             <button
-              class="primary-button full-width"
-              :disabled="timeline.nodes.length >= MAX_NODES || loading"
-              @click="addNode"
+              class="section-heading collapse-toggle"
+              :aria-expanded="settings.charactersOpen"
+              @click="settings.charactersOpen = !settings.charactersOpen"
             >
-              <Plus :size="16" />添加节点</button
-            ><small>{{ timeline.nodes.length.toLocaleString() }} / 10,000 个节点</small>
-          </div></template
-        >
-        <div v-else class="sidebar-empty">
-          <BookOpen :size="32" />
-          <p>收藏每个世界的时序</p>
-          <button class="primary-button" @click="openProject(true)">
-            <Plus :size="15" />新建时间轴
-          </button>
+              <Users :size="15" /><span>已有角色</span
+              ><span class="count">{{ characters.length }}</span
+              ><ChevronDown :size="14" :class="{ rotated: settings.charactersOpen }" />
+            </button>
+            <div v-if="filters.character" class="active-filter">
+              <span>{{ filters.character }}</span
+              ><button
+                class="icon-button small"
+                aria-label="清除角色筛选"
+                @click="filters.character = ''"
+              >
+                <X :size="13" />
+              </button>
+            </div>
+            <div v-if="settings.charactersOpen" class="filter-body character-list">
+              <input
+                v-if="characters.length > 8"
+                v-model="characterQuery"
+                aria-label="搜索角色"
+                placeholder="搜索角色…"
+              /><button :class="{ active: !filters.character }" @click="filters.character = ''">
+                全部角色</button
+              ><button
+                v-for="name in visibleCharacters"
+                :key="name"
+                :class="{ active: filters.character === name }"
+                @click="filters.character = name"
+              >
+                {{ name }}
+              </button>
+              <p v-if="!visibleCharacters.length" class="muted">
+                {{ characterQuery ? '没有匹配项' : '暂无角色' }}
+              </p>
+            </div>
+          </div>
         </div>
       </aside>
       <main class="main-area">
-        <div class="content-body">
-          <section class="timeline-panel">
-            <div class="canvas-heading">
-              <div>
-                <div class="eyebrow">STORY TIMELINE</div>
-                <h1>{{ timeline?.title || '故事，在时间里展开' }}</h1>
-                <p>{{ timeline?.description || '为每一个世界，留下一条清晰的脉络。' }}</p>
-              </div>
-              <span v-if="timeline" class="view-badge"
-                ><Clock3 :size="13" />{{ visible.length.toLocaleString() }} 个事件</span
-              >
-            </div>
-            <TimelineView
-              v-if="timeline"
-              ref="view"
-              :nodes="visible"
-              :settings="settings"
-              :selected-id="selectedId"
-              :total="timeline.nodes.length"
-              @select="chooseNode"
-            />
-            <div v-else class="welcome">
-              <div class="welcome-axis"><span /><span /><span /></div>
-              <span class="eyebrow">小说 · 游戏 · 世界设定</span>
-              <h2>从第一条时间轴开始</h2>
-              <p>
-                记录跨越纪元的故事，也记下某一天的某一刻。<br />时间、地点、组织、角色，都可以慢慢补全。
-              </p>
-              <button class="primary-button" @click="openProject(true)">
-                <Plus :size="16" />新建时间轴</button
-              ><button class="inline-button" @click="run(importFile)">
-                或导入已有 JSON 备份 <ArrowUpRight :size="14" />
-              </button>
-            </div>
-          </section>
-          <aside v-if="settings.inspector && timeline" class="inspector">
-            <NodeForm
-              v-if="editing && draft"
-              :key="editorKey"
-              :node="draft"
-              :is-new="isNew"
-              :known-characters="characters"
-              @change="changeDraft"
-              @done="(node) => run(() => finishNode(node))"
-              @cancel="cancelEdit"
-            /><template v-else-if="selected"
-              ><div class="inspector-heading">
-                <strong>事件详情</strong><span class="spacer" /><button
-                  class="icon-button"
-                  title="编辑节点"
-                  aria-label="编辑节点"
-                  @click="editNode"
-                >
-                  <Pencil :size="16" /></button
-                ><button
-                  class="icon-button danger"
-                  title="删除节点"
-                  aria-label="删除节点"
-                  @click="askDeleteNode"
-                >
-                  <Trash2 :size="16" />
-                </button>
-              </div>
-              <div class="detail-scroll">
-                <div class="detail-event"><RichText :runs="selected.event" /></div>
-                <div class="detail-section">
-                  <h3>时间</h3>
-                  <dl>
-                    <template v-for="(value, i) in selected.time" :key="i"
-                      ><template v-if="value"
-                        ><dt>{{ timeLabels[i] }}</dt>
-                        <dd>
-                          {{ i === 3 ? displayDate(value, settings.dateFormat) : value }}
-                        </dd></template
-                      ></template
-                    >
-                  </dl>
-                  <p v-if="selected.time.every((v) => !v)" class="muted">时间不确定</p>
-                </div>
-                <div
-                  v-for="group in ['location', 'organization'] as const"
-                  :key="group"
-                  class="detail-section"
-                >
-                  <h3>{{ group === 'location' ? '地点' : '组织' }}</h3>
-                  <dl>
-                    <template v-for="(value, i) in selected[group]" :key="i"
-                      ><template v-if="value"
-                        ><dt>{{ i + 1 }} 级</dt>
-                        <dd>{{ value }}</dd></template
-                      ></template
-                    >
-                  </dl>
-                  <p v-if="selected[group].every((v) => !v)" class="muted">未填写</p>
-                </div>
-                <div class="detail-section">
-                  <h3>国家</h3>
-                  <p>{{ selected.country || '未填写' }}</p>
-                </div>
-                <div class="detail-section">
-                  <h3>角色</h3>
-                  <div class="tags">
-                    <span v-for="name in selected.characters" :key="name">{{ name }}</span
-                    ><span v-if="!selected.characters.length" class="muted">未填写</span>
-                  </div>
-                </div>
-              </div>
-              <div class="inspector-foot">
-                <button class="secondary-button full-width" @click="editNode">
-                  <Pencil :size="14" />编辑这个节点
-                </button>
-              </div></template
-            >
-            <div v-else class="no-selection">
-              <Clock3 :size="32" />
-              <h3>每个事件，都有来处</h3>
-              <p>点击时间轴中的节点，<br />查看完整事件与相关信息。</p>
-            </div>
-          </aside>
-        </div>
+        <section class="timeline-panel">
+          <TimelineView
+            v-if="timeline"
+            :key="timeline.id"
+            ref="view"
+            :nodes="visible"
+            :settings="settings"
+            :selected-id="selectedId"
+            :total="timeline.nodes.length"
+            @select="chooseNode"
+            @clear="selectedId = ''"
+            @edit="editNode"
+            @delete="askDeleteNode"
+          />
+          <div v-else class="welcome">
+            <BookOpen :size="36" />
+            <h2>暂无时间轴</h2>
+            <button class="primary-button" @click="openProject(true)">
+              <Plus :size="16" />新建时间轴</button
+            ><button class="inline-button" @click="run(importFile)">导入 JSON 备份</button>
+          </div>
+          <button
+            v-if="timeline"
+            class="add-node-button"
+            aria-label="添加节点"
+            title="添加节点"
+            :disabled="timeline.nodes.length >= MAX_NODES || loading"
+            @click="addNode"
+          >
+            <Plus :size="24" />
+          </button>
+        </section>
         <footer class="status-bar">
-          <span><Clock3 :size="13" />{{ timeline?.nodes.length || 0 }} 个节点</span
-          ><span><Users :size="13" />{{ characters.length }} 位角色</span
+          <span
+            ><Clock3 :size="13" />{{ (timeline?.nodes.length || 0).toLocaleString() }} / 10,000
+            个节点</span
+          ><span class="filtered-count"
+            >筛选后 {{ visible.length.toLocaleString() }} 个节点</span
           ><span class="spacer" /><span :class="{ 'error-text': saveState.includes('失败') }"
             ><CheckCheck :size="14" />{{ saveState }}</span
-          ><span class="local-badge">{{ windowDesktop ? '本机 JSON' : '本浏览器存储' }}</span
-          ><span v-if="timeline" class="last-edited"
-            >最近编辑：{{
-              new Date(timeline.updatedAt).toLocaleString('zh-CN', { hour12: false })
-            }}</span
           >
         </footer>
       </main>
@@ -947,7 +846,9 @@ onUnmounted(() => {
         <X :size="15" />
       </button>
     </div>
-    <div v-if="toast" class="toast-message" role="status"><CheckCheck :size="16" />{{ toast }}</div>
+    <div v-if="toast" class="toast-message" role="status">
+      <CheckCheck :size="16" />{{ toast }}
+    </div>
     <input
       ref="fileInput"
       class="hidden-input"
@@ -960,19 +861,38 @@ onUnmounted(() => {
       <section
         ref="dialog"
         class="modal"
-        :class="{ 'wide-modal': modal === 'library' }"
+        :class="{
+          'wide-modal': modal === 'library',
+          'node-modal': modal === 'node',
+        }"
         role="dialog"
         aria-modal="true"
         :aria-label="modalTitle"
       >
         <div class="modal-heading">
           <h2>{{ modalTitle }}</h2>
-          <button class="icon-button" aria-label="关闭对话框" @click="closeModal">
+          <button
+            class="icon-button"
+            aria-label="关闭对话框"
+            :disabled="mutationBusy"
+            @click="closeModal"
+          >
             <X :size="18" />
           </button>
         </div>
-        <template v-if="modal === 'settings'"
-          ><div class="theme-grid">
+        <NodeForm
+          v-if="modal === 'node' && draft"
+          :key="editorKey"
+          :node="draft"
+          :is-new="isNew"
+          :known-characters="characters"
+          :known-countries="countries"
+          @change="changeDraft"
+          @done="(node) => run(() => exclusive(() => finishNode(node)))"
+          @cancel="cancelEdit"
+        />
+        <template v-else-if="modal === 'settings'">
+          <div class="theme-grid">
             <button
               v-for="theme in themes"
               :key="theme.id"
@@ -986,34 +906,25 @@ onUnmounted(() => {
             </button>
           </div>
           <div class="setting-row">
-            <div>
-              <strong>时间轴显示的时间层级</strong>
-              <p>仅改变卡片显示，完整时间始终参与排序。</p>
-            </div>
+            <strong>显示的时间层级</strong>
+            <p>仅改变卡片显示，完整时间始终参与排序。</p>
             <div class="time-options">
               <label v-for="(label, i) in timeLabels" :key="label" class="check-label"
                 ><input type="checkbox" v-model="settings.visibleTime[i]" />{{ label }}</label
               >
             </div>
           </div>
-          <div class="setting-row">
-            <div>
-              <strong>日期显示格式</strong>
-              <p>数字日期可转换显示；自定义文字保留原样。</p>
-            </div>
-            <select v-model="settings.dateFormat" aria-label="日期显示格式">
-              <option value="dots">1234.5.6</option>
-              <option value="chinese">1234年5月6日</option>
-            </select>
-          </div>
-          <p class="form-note">主题、时间显示、日期格式、角色清单折叠状态和筛选会自动保存。</p>
-          <div class="about-line">
-            <span>序时 {{ version }}</span
-            ><span>© 2026 Symplatt · 版权所有</span>
-          </div></template
-        >
-        <template v-else-if="modal === 'library'"
-          ><div class="book-tools">
+          <p class="form-note">
+            主题、时间显示、国家和角色清单折叠状态以及筛选条件会自动保存。
+          </p>
+          <TimeOrderEditor
+            v-if="timeline"
+            :model-value="timeline.timeOrder"
+            @update:model-value="(value) => modify({ ...timeline!, timeOrder: value })"
+          />
+        </template>
+        <template v-else-if="modal === 'library'">
+          <div class="book-tools">
             <div class="search-box">
               <Search :size="15" /><input
                 v-model="libraryQuery"
@@ -1043,7 +954,7 @@ onUnmounted(() => {
                 @click="
                   run(async () => {
                     await switchTimeline(item.id)
-                    modal = ''
+                    if (modal !== 'node') modal = ''
                   })
                 "
               >
@@ -1056,94 +967,67 @@ onUnmounted(() => {
                 ><span v-if="item.id === timeline?.id" class="count">当前</span></button
               ><button
                 class="icon-button danger"
-                :aria-label="`删除时间轴 ${item.title}`"
+                :aria-label="'删除时间轴 ' + item.title"
                 @click="askDeleteTimeline(item)"
               >
                 <Trash2 :size="16" />
               </button>
             </div>
             <p v-if="!filteredCatalog.length" class="empty-list">
-              {{ catalog.length ? '没有找到匹配的时间轴' : '还没有时间轴，创建一个或导入备份。' }}
+              {{ catalog.length ? '没有找到匹配的时间轴' : '暂无时间轴' }}
             </p>
-          </div></template
+          </div>
+        </template>
+        <form
+          v-else-if="modal === 'project'"
+          @submit.prevent="run(() => exclusive(finishProject))"
         >
-        <form v-else-if="modal === 'project'" @submit.prevent="run(() => exclusive(finishProject))">
           <label
             >时间轴名称<input
               v-model="projectTitle"
               aria-label="时间轴名称"
               placeholder="如 黑铁纪元编年史"
-              required /></label
-          ><label
-            >简介 <small>选填</small
-            ><textarea
-              v-model="projectDescription"
-              aria-label="时间轴简介"
-              rows="3"
-              placeholder="关于这部作品、这个世界…"
-            />
+              required
+          /></label>
+          <label
+            ><span>简介 <small>（选填）</small></span
+            ><textarea v-model="projectDescription" aria-label="时间轴简介" rows="3" />
           </label>
           <div class="modal-actions">
             <button class="secondary-button" type="button" @click="closeModal">取消</button
-            ><button class="primary-button" :disabled="!projectTitle.trim()">
+            ><button class="primary-button" :disabled="!projectTitle.trim() || mutationBusy">
               {{ projectNew ? '创建时间轴' : '完成' }}
             </button>
           </div>
         </form>
-        <template v-else-if="modal === 'export'"
-          ><p class="dialog-copy">
-            JSON 用于完整备份；PNG 用于分享时间轴；Markdown 保留完整事件，方便阅读和整理。
-          </p>
+        <template v-else-if="modal === 'export'">
           <button
             class="export-option"
-            :disabled="!timeline || exporting"
-            @click="run(() => exportJson(false))"
+            :disabled="!timeline || mutationBusy"
+            @click="run(() => exclusive(() => exportJson(false)))"
           >
             <BookOpen :size="24" /><span
-              ><strong>JSON · 当前时间轴</strong
+              ><strong>当前时间轴</strong
               ><small
                 >{{ timeline?.title }} ·
                 {{ timeline?.nodes.length }} 个节点，含全部字段与格式</small
               ></span
-            ><Upload :size="16" /></button
-          ><button class="export-option" :disabled="exporting" @click="run(() => exportJson(true))">
+            ><Upload :size="16" />
+          </button>
+          <button
+            class="export-option"
+            :disabled="mutationBusy"
+            @click="run(() => exclusive(() => exportJson(true)))"
+          >
             <FolderOpen :size="24" /><span
-              ><strong>JSON · 完整时间轴库</strong
+              ><strong>完整时间轴库</strong
               ><small>{{ catalog.length }} 条时间轴 · 全部作品</small></span
             ><Upload :size="16" />
           </button>
-          <div class="setting-row export-scope">
-            <strong>PNG / Markdown 导出范围</strong
-            ><select v-model="exportScope" aria-label="导出节点范围" :disabled="exporting">
-              <option value="filtered">当前筛选结果（{{ visible.length }} 个节点）</option>
-              <option value="all">当前时间轴全部节点（{{ ordered.length }} 个节点）</option>
-            </select>
-          </div>
-          <div class="document-export-actions">
-            <button
-              class="secondary-button"
-              :disabled="!timeline || exporting"
-              @click="run(() => exportDocument('png'))"
-            >
-              <Upload :size="15" />导出 PNG 图片</button
-            ><button
-              class="secondary-button"
-              :disabled="!timeline || exporting"
-              @click="run(() => exportDocument('md'))"
-            >
-              <Upload :size="15" />导出 Markdown
-            </button>
-          </div>
-          <p class="form-note">
-            PNG 每张最多 14 个节点，卡片保留前 100 字，屏蔽文字保持黑色；Markdown
-            包含全文。支持内嵌样式的 Markdown 阅读器可悬停查看屏蔽文字。
-          </p>
-          <p v-if="exporting" role="status" class="export-progress">
-            {{ exportProgress }}
-          </p></template
-        >
-        <template v-else-if="modal === 'import'"
-          ><p class="dialog-copy">
+          <p class="form-note">JSON 备份包含完整事件，不受当前筛选或折叠状态影响。</p>
+        </template>
+        <template v-else-if="modal === 'import'">
+          <p class="dialog-copy">
             已检查 {{ imported.length }} 条时间轴、{{
               imported.reduce((n, t) => n + t.nodes.length, 0).toLocaleString()
             }}
@@ -1151,67 +1035,82 @@ onUnmounted(() => {
           </p>
           <div class="import-list">
             <p v-for="(t, i) in imported" :key="i">
-              {{ t.title }} <span class="muted">{{ t.nodes.length }} 个节点</span>
+              {{ t.title }}
+              <span class="muted">{{ t.nodes.length }} 个节点</span>
             </p>
           </div>
           <div class="modal-actions">
             <button class="secondary-button" @click="closeModal">取消</button
-            ><button class="primary-button" @click="run(() => exclusive(commitImport))">
+            ><button
+              class="primary-button"
+              :disabled="mutationBusy"
+              @click="run(() => exclusive(commitImport))"
+            >
               确认导入
             </button>
-          </div></template
-        >
+          </div>
+        </template>
         <template v-else-if="modal === 'confirm'"
           ><p class="dialog-copy">{{ confirmCopy }}</p>
           <div class="modal-actions">
             <button class="secondary-button" @click="closeModal">取消</button
-            ><button class="primary-button destructive" @click="run(() => exclusive(confirm))">
+            ><button
+              class="primary-button destructive"
+              :disabled="mutationBusy"
+              @click="run(() => exclusive(confirm))"
+            >
               确认删除
             </button>
           </div></template
         >
-        <template v-else-if="modal === 'help'"
-          ><div class="help-content">
+        <template v-else-if="modal === 'help'">
+          <div class="help-content">
             <p>
-              <strong>01 · 建立时间轴</strong>从左上角打开时间轴库，管理最多 1000 条时间轴，每条最多
-              10000 个节点。
+              <strong>时间轴与节点</strong
+              >点击左上角时间轴名称切换或新建时间轴，右下角加号添加节点。最多 1000
+              条时间轴，每条最多 10000 个节点。只有事件必填。
             </p>
             <p>
-              <strong>02 · 记录事件</strong
-              >只有事件必填。角色以空格分隔，会进入按字母／拼音排列的已有角色清单。
+              <strong>阅读与编辑</strong>时间轴上下滚动。超过 100
+              字的事件点击“显示全文”在原卡片展开；屏蔽文字悬停或键盘聚焦可见。节点旁的编辑、删除按钮在悬停或键盘聚焦时出现。点击空白处取消选择。
             </p>
             <p>
-              <strong>03 · 阅读与筛选</strong>时间轴仅上下滚动。卡片显示事件前 100
-              字，点击右侧查看全文；黑色屏蔽文字悬停或键盘聚焦可见。
+              <strong>时间排序</strong
+              >时代、朝代、历法在“显示设置”中按每条时间轴手动编排，日期、时刻按数字与字母自然排序。共同时间部分相同时，模糊时间在前，例如
+              1999 年先于 1999 年 5
+              月；全部时间未知的节点仍在最后。时间段按开始时间排列，同一起点的时间段排在时间点前。数字日期统一显示为年月日。
             </p>
             <p>
-              <strong>04 · 时间排序</strong
-              >时代、朝代、历法、日期、时刻依次按数字、字母自然排序。缺失层级位于相同上层分组末尾；全空时间位于最后。同一天缺失时刻的事件排在当天末尾，只有年份的日期排在该年末尾。不会推断真实历史朝代先后。
+              <strong>筛选</strong
+              >地点、组织可多选名称和层级；同时选择时，名称与层级须匹配同一项。未选表示全部。勾选“显示无地点／组织事件”会额外保留没有对应信息的节点。国家可多选，符合任一所选国家即可显示；不同类别的筛选同时生效。
             </p>
             <p>
-              <strong>05 · 地点与组织</strong>均为 5 级，1
-              级最高。可同时选择不同层级；勾选“显示无地点／组织事件”时，无对应信息的节点也会显示。
+              <strong>国家与角色</strong>输入时以空格分隔，按字母／拼音排列，已有清单可折叠。
             </p>
             <p>
-              <strong>06 · 保存与备份</strong>修改后约 0.65 秒自动保存，Ctrl+S
-              可立即保存。未完成节点以草稿恢复。桌面数据位于
-              %APPDATA%\Xushi\workspace，更新和卸载保留数据；请定期导出完整 JSON。
+              <strong>自动保存与备份</strong>修改后约 0.65 秒自动保存，Ctrl+S
+              立即保存。未完成节点在重启后恢复。JSON
+              可备份当前时间轴或完整库，导入时作为新时间轴加入。数据位于
+              %APPDATA%\Xushi\workspace，更新和卸载保留数据。
             </p>
             <p class="form-note">屏蔽是阅读效果，JSON 内仍含原文，不是加密。</p>
-          </div></template
-        >
+          </div>
+          <div class="about-line">
+            <span>序时 {{ version }}</span
+            ><span>© 2026 Symplatt · 版权所有</span>
+          </div>
+        </template>
       </section>
     </div>
   </div>
 </template>
 
 <script lang="ts">
-const windowDesktop = !!window.desktop
 const titles: Record<string, string> = {
   settings: '显示设置',
   library: '时间轴库',
   project: '时间轴信息',
-  export: '导出作品',
+  export: '导出 JSON',
   import: '导入预览',
   help: '认识序时',
 }
