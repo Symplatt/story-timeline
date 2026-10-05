@@ -9,6 +9,7 @@ import {
   five,
   displayClock,
   nodeTimeError,
+  type TimeName,
   type Settings,
   type TimelineNode,
 } from '../model'
@@ -19,6 +20,7 @@ const props = defineProps<{
   knownOrganizations: string[]
   isNew: boolean
   nodes: TimelineNode[]
+  timeNames?: TimeName[]
 }>()
 const emit = defineEmits<{
   change: [node: TimelineNode]
@@ -49,7 +51,7 @@ const timeError = computed(() =>
   !props.isNew &&
   JSON.stringify([draft.value.time, draft.value.endTime]) === originalTimes
     ? ''
-    : nodeTimeError(draft.value, props.nodes),
+    : nodeTimeError(draft.value, props.nodes, props.timeNames),
 )
 const valid = computed(() => !!plainText(draft.value.event).trim() && !timeError.value)
 function copy(): TimelineNode {
@@ -191,7 +193,7 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
     </div>
     <p v-if="timeError" class="required" role="alert">{{ timeError }}</p>
     <div class="form-actions">
-      <small v-if="!isNew && !valid">事件为空，尚未保存此修改</small
+      <small v-if="!isNew && !valid">尚未保存此修改</small
       ><span class="spacer" /><button
         class="secondary-button"
         type="button"

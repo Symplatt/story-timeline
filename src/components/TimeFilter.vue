@@ -6,6 +6,8 @@ import {
   five,
   MISSING_TIME,
   timeParents,
+  timeOptions,
+  type TimeName,
   updateTimeBound,
   timeResolver,
   displayClock,
@@ -15,10 +17,14 @@ import {
   type Filters,
   type TimeOrder,
 } from '../model'
-const props = defineProps<{ order: TimeOrder; nodes: TimelineNode[] }>()
+const props = defineProps<{
+  order: TimeOrder
+  nodes: TimelineNode[]
+  timeNames?: TimeName[]
+}>()
 const open = defineModel<boolean>('open', { required: true })
 const filters = defineModel<Filters>({ required: true })
-const parents = computed(() => timeParents(props.nodes))
+const parents = computed(() => timeParents(props.nodes, props.timeNames))
 const conflicting = computed(() =>
   parents.value.some((map) => [...map.values()].some((v) => v.length > 1)),
 )
@@ -37,7 +43,8 @@ const unknown = computed(() =>
     bound
       ?.slice(0, 3)
       .some(
-        (value, i) => value && value !== MISSING_TIME && !props.order[i].includes(value),
+        (value, i) =>
+          value && value !== MISSING_TIME && !props.order[i].includes(value),
       ),
   ),
 )
@@ -87,13 +94,20 @@ const reversed = computed(
               <option value="">不限</option>
               <option :value="MISSING_TIME">未填写</option>
               <option
-                v-for="value in order[index]"
+                v-for="value in timeOptions(
+                  order[index],
+                  index,
+                  filters[key] || five(),
+                  parents,
+                )"
                 :key="value"
                 :value="value"
                 :disabled="(parents[index].get(value)?.length || 0) > 1"
               >
                 {{ value
-                }}{{ (parents[index].get(value)?.length || 0) > 1 ? '（上级冲突）' : '' }}
+                }}{{
+                  (parents[index].get(value)?.length || 0) > 1 ? '（上级冲突）' : ''
+                }}
               </option>
               <option
                 v-if="

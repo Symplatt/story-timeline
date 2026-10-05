@@ -40,6 +40,7 @@ import {
   summary,
   createNodeComparator,
   mergeTimeOrder,
+  reconcileTimeNames,
   mergeTimeline,
   matches,
   emptyFilters,
@@ -331,7 +332,7 @@ function changeDraft(node: TimelineNode) {
   if (
     !isNew.value &&
     plainText(node.event).trim() &&
-    !nodeTimeError(node, timeline.value!.nodes)
+    !nodeTimeError(node, timeline.value!.nodes, timeline.value!.timeNames)
   )
     applyNode(node, false, false)
 }
@@ -342,7 +343,7 @@ function applyNode(node: TimelineNode, append: boolean, remember = true) {
     previous &&
     JSON.stringify([previous.time, previous.endTime]) ===
       JSON.stringify([node.time, node.endTime])
-  const validation = sameTimes ? '' : nodeTimeError(node, t.nodes)
+  const validation = sameTimes ? '' : nodeTimeError(node, t.nodes, t.timeNames)
   if (validation) throw new Error(validation)
   const normalized = clone(node)
   normalized.time = normalized.time.map((v) => v.trim()) as TimelineNode['time']
@@ -356,11 +357,12 @@ function applyNode(node: TimelineNode, append: boolean, remember = true) {
   )
   if (append && t.nodes.length >= MAX_NODES)
     throw new Error('本条时间轴已达到 10000 个节点')
+  const nodes = append
+    ? [...t.nodes, normalized]
+    : t.nodes.map((n) => (n.id === node.id ? normalized : n))
   modify({
     ...t,
-    nodes: append
-      ? [...t.nodes, normalized]
-      : t.nodes.map((n) => (n.id === node.id ? normalized : n)),
+    nodes,
     // Keep autosaving the node, but only register completed labels. Otherwise
     // every keystroke while editing creates a spurious country or era name.
     characters: remember
@@ -373,6 +375,7 @@ function applyNode(node: TimelineNode, append: boolean, remember = true) {
       ? sortedCharacters([...t.organizations, ...node.organizations])
       : t.organizations,
     timeOrder: remember ? mergeTimeOrder(t.timeOrder, [normalized]) : t.timeOrder,
+    timeNames: remember ? reconcileTimeNames(t.timeNames, nodes) : t.timeNames,
   })
 }
 async function finishNode(node: TimelineNode) {
@@ -391,7 +394,7 @@ function cancelEdit() {
     !isNew.value &&
     draft.value &&
     plainText(draft.value.event).trim() &&
-    !nodeTimeError(draft.value, timeline.value!.nodes)
+    !nodeTimeError(draft.value, timeline.value!.nodes, timeline.value!.timeNames)
   )
     applyNode(draft.value, false)
   editing.value = false
@@ -500,7 +503,7 @@ async function confirm() {
 }
 async function prepareImport(raw: unknown) {
   const ts = parseImport(raw)
-  ts.forEach((t) => assertTimeNamesUnique(t.nodes))
+  ts.forEach((t) => assertTimeNamesUnique(t.nodes, t.timeNames))
   imported.value = ts
   importMode.value = 'new'
   modal.value = 'import'
@@ -559,7 +562,7 @@ async function exportJson(all: boolean) {
   } else timelines.push(clone(timeline.value!))
   const data = {
       format: 'xushi',
-      version: 5,
+      version: 6,
       exportedAt: new Date().toISOString(),
       timelines,
     },
@@ -692,7 +695,11 @@ onUnmounted(() => {
         >
           <Download :size="15" />导入 JSON
         </button>
-        <button class="text-button" :disabled="!catalog.length" @click="modal = 'export'">
+        <button
+          class="text-button"
+          :disabled="!catalog.length"
+          @click="modal = 'export'"
+        >
           <Upload :size="15" />导出 JSON
         </button>
         <span class="brand-divider" />
@@ -777,6 +784,7 @@ onUnmounted(() => {
           <TimeFilter
             v-model="filters"
             :order="timeline.timeOrder"
+            :time-names="timeline.timeNames"
             :nodes="timeline.nodes"
             :open="activeFilter === 'time'"
             @update:open="activeFilter = $event ? 'time' : ''"
@@ -922,6 +930,7 @@ onUnmounted(() => {
           :key="editorKey"
           :node="draft"
           :nodes="timeline?.nodes || []"
+          :time-names="timeline?.timeNames"
           v-model:settings="settings"
           :is-new="isNew"
           :known-characters="characters"
@@ -1103,7 +1112,9 @@ onUnmounted(() => {
                 v-model="importMode"
                 value="merge"
                 :disabled="!timeline"
-              />合并到当前时间轴<span v-if="timeline">：{{ timeline.title }}</span></label
+              />合并到当前时间轴<span v-if="timeline"
+                >：{{ timeline.title }}</span
+              ></label
             >
             <p v-if="importMode === 'merge'" class="form-note">
               保留当前名称、简介和筛选；导入节点追加为新节点，已有时间顺序优先。

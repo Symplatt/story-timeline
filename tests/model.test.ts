@@ -5,6 +5,10 @@ import {
   timeDisplay,
   displayClock,
   timeParents,
+  timeOptions,
+  mergeTimeNames,
+  reconcileTimeNames,
+  assertTimeNamesUnique,
   updateTimeBound,
   MISSING_TIME,
   nodeTimeError,
@@ -206,7 +210,9 @@ describe('time ranges and manual era order', () => {
     range.endTime = ['黎明纪元', '', '', '2000.5', '17:00:73']
     t.nodes = [range]
     t.timeOrder = [['混沌纪元', '黄昏纪元', '黎明纪元'], [], []]
-    expect(parseImport({ format: 'xushi', version: 3, timelines: [t] })[0]).toEqual(t)
+    expect(parseImport({ format: 'xushi', version: 3, timelines: [t] })[0]).toEqual(
+      validateTimeline(t),
+    )
     const f = emptyFilters()
     f.query = '黎明纪元'
     expect(matches(range, f)).toBe(true)
@@ -504,9 +510,9 @@ describe('inclusive time filtering and organization migration', () => {
     expect(
       matchesTimeRange(node(['黄昏']), node(['混沌']).time, node(['黎明']).time, order),
     ).toBe(true)
-    expect(matchesTimeRange(node(['混沌']), node(['黄昏']).time, undefined, order)).toBe(
-      false,
-    )
+    expect(
+      matchesTimeRange(node(['混沌']), node(['黄昏']).time, undefined, order),
+    ).toBe(false)
   })
   it('migrates legacy organization levels into labels and keeps original names', () => {
     const t: any = newTimeline('旧版')
@@ -585,9 +591,9 @@ describe('1.5 time and data behavior', () => {
   it('time filter resets descendants and fills known or explicitly missing ancestors', () => {
     const nodes = [node(['古代', '清', '乾隆']), node(['', '明', '洪武'])]
     const parents = timeParents(nodes)
-    expect(
-      updateTimeBound(['古代', '清', '乾隆', '1', '08:00'], 1, '明', parents),
-    ).toEqual([MISSING_TIME, '明', '', '', ''])
+    expect(updateTimeBound(['', '清', '乾隆', '1', '08:00'], 1, '明', parents)).toEqual(
+      [MISSING_TIME, '明', '', '', ''],
+    )
     expect(updateTimeBound(['', '', '', '', ''], 2, '乾隆', parents)).toEqual([
       '古代',
       '清',
@@ -666,5 +672,129 @@ describe('multi-value participation', () => {
     expect(matches(n, f)).toBe(true)
     f.organizations.values = ['组织丙']
     expect(matches(n, f)).toBe(false)
+  })
+})
+
+describe('1.6 persistent time ancestry', () => {
+  const qing = () => node(['近世', '清', '乾隆', '1.5.6', '08:00'])
+  it('filters names by every selected ancestor and distinguishes missing from unlimited', () => {
+    const parents = timeParents([
+      qing(),
+      node(['近世', '明', '洪武']),
+      node(['', '旧朝', '旧历']),
+    ])
+    const values = ['乾隆', '洪武', '旧历']
+    expect(timeOptions(values, 2, node(['近世', '明']).time, parents)).toEqual(['洪武'])
+    expect(timeOptions(values, 2, node(['近世']).time, parents)).toEqual([
+      '乾隆',
+      '洪武',
+    ])
+    expect(timeOptions(values, 2, node([MISSING_TIME]).time, parents)).toEqual(['旧历'])
+    expect(timeOptions(values, 2, node().time, parents)).toEqual(values)
+  })
+  it('does not replace an explicitly selected parent with an incompatible child', () => {
+    const bound = node(['近世', '明']).time
+    expect(updateTimeBound(bound, 2, '乾隆', timeParents([qing()]))).toEqual(bound)
+  })
+  it('stores complete ancestry for all five levels, including empty parents', () => {
+    const names = mergeTimeNames([], [qing(), node(['', '明'])])
+    expect(names).toContainEqual({
+      level: 4,
+      name: '08:00',
+      ancestors: ['近世', '清', '乾隆', '1年5月6日'],
+    })
+    expect(names).toContainEqual({ level: 1, name: '明', ancestors: [''] })
+  })
+  it('rejects reparenting the only node and permits repeated use under the same parents', () => {
+    const original = qing(),
+      changed = structuredClone(original)
+    changed.time[1] = '明'
+    expect(nodeTimeError(changed, [original])).toContain('乾隆')
+    expect(nodeTimeError(qing(), [original])).toBe('')
+    changed.time[2] = '洪武'
+    changed.time[3] = ''
+    changed.time[4] = ''
+    expect(nodeTimeError(changed, [original])).toBe('')
+  })
+  it('preserves constraints after deleting or renaming the last node and reopening', () => {
+    const t = newTimeline('归属')
+    t.nodes = [qing()]
+    const migrated = validateTimeline(t)
+    migrated.nodes = []
+    const reopened = validateTimeline(JSON.parse(JSON.stringify(migrated)))
+    expect(
+      nodeTimeError(node(['近世', '明', '乾隆']), [], reopened.timeNames),
+    ).toContain('乾隆')
+    expect(
+      timeOptions(
+        ['乾隆'],
+        2,
+        node(['近世', '明']).time,
+        timeParents([], reopened.timeNames),
+      ),
+    ).toEqual([])
+    expect(
+      timeOptions(
+        ['乾隆'],
+        2,
+        node(['近世', '清']).time,
+        timeParents([], reopened.timeNames),
+      ),
+    ).toEqual(['乾隆'])
+  })
+  it('checks date and clock ancestry using normalized date and minute values', () => {
+    const original = qing()
+    expect(
+      nodeTimeError(node(['近世', '清', '嘉庆', '1年5月6日']), [original]),
+    ).toContain('日期')
+    expect(
+      nodeTimeError(node(['近世', '清', '乾隆', '2', '08:00']), [original]),
+    ).toContain('时刻')
+    expect(
+      nodeTimeError(node(['近世', '清', '乾隆', '1年5月6日', '08:00:59']), [original]),
+    ).toBe('')
+  })
+  it('checks start and end names against one shared registry', () => {
+    const range = qing()
+    range.endTime = node(['近世', '明', '乾隆']).time
+    expect(nodeTimeError(range, [])).toContain('乾隆')
+  })
+  it('round trips registry with backup v6, copies it independently and rejects merge conflicts even with no nodes', () => {
+    const t = newTimeline('原件')
+    t.timeNames = mergeTimeNames([], [qing()])
+    const backup = parseImport(
+      JSON.parse(JSON.stringify({ format: 'xushi', version: 6, timelines: [t] })),
+    )[0]
+    expect(backup.timeNames).toEqual(t.timeNames)
+    const copy = duplicateTimeline(backup)
+    copy.timeNames![0].name = '副本'
+    expect(backup.timeNames![0].name).toBe('近世')
+    const incoming = newTimeline('导入')
+    incoming.nodes = [node(['近世', '明', '乾隆'])]
+    expect(() => mergeTimeline(backup, incoming)).toThrow('多个上级')
+  })
+  it('preserves legacy conflicts and permits unrelated edits without silently reparenting', () => {
+    const t = newTimeline('旧资料')
+    t.nodes = [qing(), node(['近世', '明', '乾隆'])]
+    const loaded = validateTimeline(t)
+    expect(loaded.nodes).toEqual(t.nodes)
+    expect(() => assertTimeNamesUnique(loaded.nodes, loaded.timeNames)).toThrow(
+      '多个上级',
+    )
+    const edited = structuredClone(loaded.nodes[1])
+    edited.event[0].text = '修改正文'
+    expect(nodeTimeError(edited, loaded.nodes, loaded.timeNames)).toBe('')
+    edited.time[2] = '洪武'
+    expect(nodeTimeError(edited, loaded.nodes, loaded.timeNames)).toBe('')
+    const repaired = reconcileTimeNames(loaded.timeNames, [loaded.nodes[0], edited])
+    expect(() =>
+      assertTimeNamesUnique([loaded.nodes[0], edited], repaired),
+    ).not.toThrow()
+    expect(nodeTimeError(node(['近世', '明', '乾隆']), [], repaired)).toContain('乾隆')
+  })
+  it('rejects malformed persisted ancestry', () => {
+    const t = newTimeline('错误')
+    t.timeNames = [{ level: 2, name: '历法', ancestors: ['时代'] }]
+    expect(() => validateTimeline(t)).toThrow('归属层级')
   })
 })

@@ -12,6 +12,7 @@ export type Mark = 'bold' | 'underline' | 'italic' | 'strike' | 'spoiler'
 export type Run = { text: string; marks: Mark[] }
 export type Five = [string, string, string, string, string]
 export type TimeOrder = [string[], string[], string[]]
+export type TimeName = { level: number; name: string; ancestors: string[] }
 export interface TimelineNode {
   id: string
   time: Five
@@ -53,6 +54,7 @@ export interface Timeline {
   organizations: string[]
   filters: Filters
   timeOrder: TimeOrder
+  timeNames?: TimeName[]
   updatedAt: string
 }
 export interface Summary {
@@ -124,7 +126,12 @@ export const natural = new Intl.Collator('zh-CN-u-co-pinyin', {
   sensitivity: 'base',
 })
 export const characterList = (text: string) => [
-  ...new Set(text.trim().split(/[\s,，]+/u).filter(Boolean)),
+  ...new Set(
+    text
+      .trim()
+      .split(/[\s,，]+/u)
+      .filter(Boolean),
+  ),
 ]
 export const sortedCharacters = (names: string[]) =>
   [...new Set(names)].sort((a, b) => natural.compare(a, b) || a.localeCompare(b))
@@ -212,7 +219,8 @@ export function createNodeComparator(
   }
 }
 const defaultComparator = createNodeComparator()
-export const compareNodes = (a: TimelineNode, b: TimelineNode) => defaultComparator(a, b)
+export const compareNodes = (a: TimelineNode, b: TimelineNode) =>
+  defaultComparator(a, b)
 export function preview(runs: Run[], limit = 100): { runs: Run[]; truncated: boolean } {
   let left = limit
   const result: Run[] = []
@@ -229,7 +237,8 @@ export function hierarchyOption(
   values: Five,
   level: number,
 ): { key: string; label: string } {
-  if (values[level]) return { key: JSON.stringify([values[level]]), label: values[level] }
+  if (values[level])
+    return { key: JSON.stringify([values[level]]), label: values[level] }
   const descendants = values
     .slice(level + 1)
     .map((value, i) => (value ? `${i + level + 2}级 ${value}` : ''))
@@ -308,7 +317,9 @@ export function matchesTimeRange(
     [start, end].some((bound) =>
       bound
         ?.slice(0, 3)
-        .some((value, i) => value && value !== MISSING_TIME && !order[i].includes(value)),
+        .some(
+          (value, i) => value && value !== MISSING_TIME && !order[i].includes(value),
+        ),
     )
   )
     return false
@@ -361,7 +372,9 @@ export function matches(
       ...node.time,
       ...timeDisplay(node.time, [true, true, true, true, true]),
       ...(node.endTime || []),
-      ...(node.endTime ? timeDisplay(node.endTime, [true, true, true, true, true]) : []),
+      ...(node.endTime
+        ? timeDisplay(node.endTime, [true, true, true, true, true])
+        : []),
       ...node.location,
       ...node.organizations.flat(),
       ...node.countries,
@@ -528,6 +541,7 @@ export function validateTimeline(value: unknown): Timeline {
     description: typeof v.description === 'string' ? v.description : '',
     nodes,
     timeOrder: mergeTimeOrder(timeOrder, nodes),
+    timeNames: reconcileTimeNames(readTimeNames(v.timeNames), nodes),
     characters: sortedCharacters([
       ...names(v.characters ?? []),
       ...nodes.flatMap((n) => n.characters),
@@ -571,7 +585,8 @@ export function validateNode(raw: unknown, requireEvent = true): TimelineNode {
     if (
       !Array.isArray(r.marks) ||
       r.marks.some(
-        (m) => !['bold', 'underline', 'italic', 'strike', 'spoiler'].includes(String(m)),
+        (m) =>
+          !['bold', 'underline', 'italic', 'strike', 'spoiler'].includes(String(m)),
       )
     )
       throw new Error('不支持的事件格式')
@@ -607,7 +622,7 @@ export function parseImport(value: unknown): Timeline[] {
   const v = object(value)
   if (
     v.format !== 'xushi' ||
-    ![1, 2, 3, 4, 5].includes(Number(v.version)) ||
+    ![1, 2, 3, 4, 5, 6].includes(Number(v.version)) ||
     !Array.isArray(v.timelines) ||
     !v.timelines.length ||
     v.timelines.length > MAX_TIMELINES
@@ -640,29 +655,139 @@ export function timeDisplay(time: Five, used: boolean[]): string[] {
 
 export const MISSING_TIME = '\u0001missing'
 export type TimeParents = Map<string, string[]>[]
-export function timeParents(nodes: TimelineNode[]): TimeParents {
-  const result: TimeParents = [new Map(), new Map(), new Map()]
+const timeNameKey = (value: string, level: number) =>
+  level === 3
+    ? displayDate(value.trim())
+    : level === 4
+      ? displayClock(value)
+      : value.trim()
+
+function readTimeNames(raw: unknown): TimeName[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) throw new Error('时间归属格式错误')
+  return raw.map((item) => {
+    const entry = object(item)
+    const level = Number(entry.level)
+    if (
+      !Number.isInteger(level) ||
+      level < 0 ||
+      level > 4 ||
+      !Array.isArray(entry.ancestors) ||
+      entry.ancestors.length !== level
+    )
+      throw new Error('时间归属层级错误')
+    const name = timeNameKey(string(entry.name), level)
+    if (!name) throw new Error('时间归属名称不能为空')
+    return {
+      level,
+      name,
+      ancestors: entry.ancestors.map((v, i) => timeNameKey(string(v), i)),
+    }
+  })
+}
+
+/** Keep the complete ancestry even after the last event using a name is removed.
+ * Missing ancestors are stored as empty strings, never inferred from history. */
+export function mergeTimeNames(
+  known: TimeName[] = [],
+  nodes: TimelineNode[],
+): TimeName[] {
+  const entries = new Map<string, TimeName>()
+  const add = (entry: TimeName) => entries.set(JSON.stringify(entry), entry)
+  known.forEach(add)
   for (const node of nodes)
-    for (const time of [node.time, node.endTime].filter(Boolean) as Five[])
-      for (let i = 1; i < 3; i++)
-        if (time[i]) {
-          const key = JSON.stringify(time.slice(0, i)),
-            known = result[i].get(time[i]) || []
-          if (!known.includes(key)) known.push(key)
-          result[i].set(time[i], known)
-        }
+    for (const time of [node.time, node.endTime].filter(Boolean) as Five[]) {
+      const values = time.map(timeNameKey)
+      values.forEach((name, level) => {
+        if (name) add({ level, name, ancestors: values.slice(0, level) })
+      })
+    }
+  return [...entries.values()]
+}
+
+export function timeParents(
+  nodes: TimelineNode[],
+  known: TimeName[] = [],
+): TimeParents {
+  const result: TimeParents = Array.from({ length: 5 }, () => new Map())
+  for (const { level, name, ancestors } of mergeTimeNames(known, nodes)) {
+    const key = JSON.stringify(ancestors),
+      prefixes = result[level].get(name) || []
+    if (!prefixes.includes(key)) prefixes.push(key)
+    result[level].set(name, prefixes)
+  }
   return result
 }
-export function nodeTimeError(node: TimelineNode, others: TimelineNode[]): string {
-  const parents = timeParents(others.filter((n) => n.id !== node.id))
+
+/** Only ambiguous legacy records may lose a branch after the user renames its
+ * events. A unique, established ownership is never reassigned this way. */
+export function reconcileTimeNames(
+  known: TimeName[] = [],
+  nodes: TimelineNode[],
+): TimeName[] {
+  const saved = timeParents([], known),
+    live = timeParents(nodes)
+  return mergeTimeNames(
+    known.filter(({ level, name, ancestors }) => {
+      const candidates = saved[level].get(name) || []
+      const used = live[level].get(name)
+      return (
+        candidates.length < 2 ||
+        !used?.length ||
+        used.includes(JSON.stringify(ancestors))
+      )
+    }),
+    nodes,
+  )
+}
+
+export function timeOptions(
+  values: string[],
+  index: number,
+  bound: Five,
+  parents: TimeParents,
+): string[] {
+  if (!index) return values
+  return values.filter((name) => {
+    const prefixes = parents[index].get(timeNameKey(name, index)) || []
+    return (
+      prefixes.some((raw) => {
+        const prefix: string[] = JSON.parse(raw)
+        return prefix.every(
+          (value, i) =>
+            !bound[i] ||
+            (bound[i] === MISSING_TIME ? !value : timeNameKey(bound[i], i) === value),
+        )
+      }) ||
+      (!prefixes.length && !bound.slice(0, index).some(Boolean))
+    )
+  })
+}
+
+export function nodeTimeError(
+  node: TimelineNode,
+  others: TimelineNode[],
+  known: TimeName[] = [],
+): string {
+  const parents = timeParents(others, known)
+  const original = others.find((n) => n.id === node.id)
+  const unchanged = (time: Five, index: number) =>
+    [original?.time, original?.endTime].some(
+      (old) =>
+        old &&
+        JSON.stringify(old.slice(0, index + 1).map(timeNameKey)) ===
+          JSON.stringify(time.slice(0, index + 1).map(timeNameKey)),
+    )
   for (const time of [node.time, node.endTime].filter(Boolean) as Five[]) {
     if (time[4].trim() && !time[3].trim()) return '填写时刻前，请先填写日期。'
-    for (let i = 1; i < 3; i++) {
-      const prefixes = parents[i].get(time[i].trim())
-      const prefix = JSON.stringify(time.slice(0, i).map((v) => v.trim()))
-      if (prefixes?.some((p) => p !== prefix))
+    for (let i = 1; i < 5; i++) {
+      const name = timeNameKey(time[i], i)
+      if (!name) continue
+      const prefixes = parents[i].get(name)
+      const prefix = JSON.stringify(time.slice(0, i).map(timeNameKey))
+      if (!unchanged(time, i) && prefixes?.some((p) => p !== prefix))
         return `${timeLabels[i]}“${time[i]}”已属于其他上级，请使用不同名称。`
-      if (time[i]) parents[i].set(time[i].trim(), [...(prefixes || []), prefix])
+      parents[i].set(name, [...(prefixes || []), prefix])
     }
   }
   return ''
@@ -673,6 +798,14 @@ export function updateTimeBound(
   value: string,
   parents: TimeParents,
 ): Five {
+  if (
+    index > 0 &&
+    index < 3 &&
+    value &&
+    value !== MISSING_TIME &&
+    !timeOptions([value], index, time, parents).includes(value)
+  )
+    return [...time] as Five
   const result = [...time] as Five
   result[index] = value
   result.fill('', index + 1)
@@ -741,9 +874,9 @@ export function timeResolver(order: TimeOrder, nodes: TimelineNode[]) {
   }
 }
 
-export function assertTimeNamesUnique(nodes: TimelineNode[]) {
-  const parents = timeParents(nodes)
-  for (let i = 1; i < 3; i++)
+export function assertTimeNamesUnique(nodes: TimelineNode[], known: TimeName[] = []) {
+  const parents = timeParents(nodes, known)
+  for (let i = 1; i < 5; i++)
     for (const [name, values] of parents[i])
       if (values.length > 1)
         throw new Error(
@@ -765,7 +898,11 @@ export function duplicateTimeline(source: Timeline): Timeline {
 export function mergeTimeline(current: Timeline, incoming: Timeline): Timeline {
   if (current.nodes.length + incoming.nodes.length > MAX_NODES)
     throw new Error('合并后将超过 10000 个节点上限')
-  assertTimeNamesUnique([...current.nodes, ...incoming.nodes])
+  const timeNames = mergeTimeNames(
+    [...(current.timeNames || []), ...(incoming.timeNames || [])],
+    [...current.nodes, ...incoming.nodes],
+  )
+  assertTimeNamesUnique([], timeNames)
   const nodes = incoming.nodes.map((node) => ({
     ...(JSON.parse(JSON.stringify(node)) as TimelineNode),
     id: uid(),
@@ -773,6 +910,7 @@ export function mergeTimeline(current: Timeline, incoming: Timeline): Timeline {
   return {
     ...current,
     nodes: [...current.nodes, ...nodes],
+    timeNames,
     countries: sortedCharacters([...current.countries, ...incoming.countries]),
     organizations: sortedCharacters([
       ...current.organizations,
