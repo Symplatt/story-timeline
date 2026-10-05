@@ -1335,3 +1335,59 @@ input[type='checkbox'] {
 .node-form .section-label {
   margin-bottom: 16px;
 }
+
+/* Full selection uses type and a double-check glyph, not a surrounding frame. */
+.select-all-button { border: 0; background: transparent; padding: 10px 8px; font-size: 14px; font-weight: 600; gap: 11px; }
+.select-all-button:hover { background: transparent; }
+.select-all-button:focus-visible { outline: none; text-decoration: underline; text-underline-offset: 5px; }
+.select-all-button .all-checkbox { margin-left: 0; }
+.all-checkbox { border-radius: 50%; border-width: 2px; width: 17px; height: 17px; }
+.all-checkbox.checked { background: var(--green); color: var(--surface); border-color: var(--green); }
+.filter-values, .hierarchy-values { padding-left: 8px; padding-right: 8px; }
+.filter-values input[type='checkbox'], .hierarchy-values input[type='checkbox'] { width: 17px; height: 17px; }
+
+/* The whole field header is a hit target, including its flexible middle space. */
+.filter-section > .collapse-toggle,
+.filter-section > summary { display: flex; align-items: center; width: calc(100% + 24px); margin: -16px -12px; padding: 16px 12px; min-height: 50px; flex: none; }
+.filter-section:has(> .filter-body) > .collapse-toggle,
+.filter-section:has(> .active-filter) > .collapse-toggle,
+.filter-section[open] > summary { margin-bottom: 0; }
+.filter-section > summary::after { content: none; }
+.filter-section > summary .count { margin-left: 0; }
+.filter-chevron { margin-left: auto; flex-shrink: 0; }
+.filter-section[open] > summary .filter-chevron { transform: rotate(180deg); }
+.filter-section > .collapse-toggle > * { pointer-events: none; }
+
+#filter-dock { flex: 0 0 330px; width: 330px; min-width: 0; border-right: 1px solid var(--line); background: var(--surface); box-shadow: 5px 0 16px var(--shadow); z-index: 2; overflow: auto; }
+.location-open #filter-dock { flex-basis: clamp(360px, 44vw, 800px); width: clamp(360px, 44vw, 800px); }
+.filter-panel { padding: 22px 20px; min-width: 0; }
+.filter-panel > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; font-size: 17px; }
+.filter-panel .filter-body { display: flex; flex-direction: column; gap: 12px; }
+.filter-panel fieldset { border: 0; padding: 0; margin: 12px 0; min-width: 0; }
+.filter-panel legend { font-weight: 600; margin-bottom: 12px; }
+.filter-panel fieldset label { display: grid; grid-template-columns: 35px minmax(0,1fr); align-items: center; gap: 10px; margin-bottom: 12px; color: var(--muted); }
+.filter-panel select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 10px 8px; background: var(--input); color: var(--text); }
+.filter-panel .hierarchy-toolbar { flex-wrap: wrap; margin-top: 24px; }
+.filter-panel .hierarchy-columns { margin-top: 20px; overflow-x: auto; }
+.filter-panel footer { margin-top: 22px; display: flex; flex-wrap: wrap; gap: 14px; }
+.clear-filter-link { color: var(--muted); text-decoration: underline; text-underline-offset: 4px; padding: 4px 0; justify-content: flex-start; }
+.clear-filter-link:hover { color: color-mix(in srgb, var(--muted) 65%, white); background: transparent; }
+.clear-all-filters { margin: auto 24px 22px; flex-shrink: 0; }
+.filter-open .timeline-viewport { padding: 22px 12px 110px; }
+.filter-open .timeline-row { grid-template-columns: 18px minmax(0,1fr) 27px; }
+.filter-open .time-column { grid-column: 2; text-align: left; padding: 0 0 8px; display: flex; flex-wrap: wrap; gap: 0 8px; }
+.filter-open .axis { grid-column: 1; grid-row: 1 / span 2; height: 100%; }
+.filter-open .event-card { grid-column: 2; grid-row: 2; padding: 16px; }
+.filter-open .node-actions { grid-column: 3; grid-row: 2; }
+.scroll-controls, .add-node-button { z-index: 4; box-shadow: 0 3px 14px var(--shadow); }
+.event-card-head { margin-left: 0; }
+.country-tag { background: var(--green); color: var(--on-accent); border-color: var(--green); font-weight: 500; }
+.time-order-list li > * { pointer-events: none; }
+.time-order-list li.dragging { opacity: 1; background: color-mix(in srgb, var(--green) 25%, var(--surface)); }
+.import-mode { display: flex; flex-direction: column; gap: 14px; margin: 18px 0; }
+.import-mode label { display: flex; align-items: center; gap: 8px; margin: 0; }
+.filter-open .status-bar { height: auto; min-height: 36px; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 1150px) {
+  #filter-dock { flex-basis: 290px; width: 290px; }
+  .location-open #filter-dock { flex-basis: 360px; width: 360px; }
+}

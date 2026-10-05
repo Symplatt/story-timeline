@@ -169,33 +169,25 @@ defineExpose({ reveal })
         <div class="time-column">
           <template v-for="(value, level) in node.time" :key="level"
             ><div
-              v-if="value && settings.visibleTime[level]"
+              v-if="value"
               :class="{ 'time-major': level === 0 }"
             >
               {{ level === 3 ? displayDate(value) : value }}
             </div></template
           >
           <span v-if="node.time.every((v) => !v)" class="unknown-time">时间不确定</span>
-          <span
-            v-else-if="!node.time.some((v, j) => v && settings.visibleTime[j])"
-            class="unknown-time"
-            >时间已隐藏</span
-          >
+
           <template v-if="node.endTime"
             ><div class="range-separator" aria-label="至">—</div>
             <template v-for="(value, level) in node.endTime" :key="'end-' + level"
               ><div
-                v-if="value && settings.visibleTime[level]"
+                v-if="value"
                 :class="{ 'time-major': level === 0 }"
               >
                 {{ level === 3 ? displayDate(value) : value }}
               </div></template
             ><span v-if="node.endTime.every((v) => !v)" class="unknown-time"
               >结束时间不确定</span
-            ><span
-              v-else-if="!node.endTime.some((v, j) => v && settings.visibleTime[j])"
-              class="unknown-time"
-              >时间已隐藏</span
             ></template
           >
         </div>
@@ -209,6 +201,7 @@ defineExpose({ reveal })
           tabindex="0"
           :aria-label="`第 ${start + i + 1} 个事件`"
           @click.stop="emit('select', node)"
+          @dblclick.stop="expanded.add(node.id)"
           @keydown.enter.self.prevent="emit('select', node)"
           @keydown.space.self.prevent="emit('select', node)"
         >
@@ -260,7 +253,7 @@ defineExpose({ reveal })
                 }}</span></span
               ></span
             >
-            <span v-if="node.characters.length" title="角色"
+            <span v-if="node.characters.length" title="人物"
               ><Users :size="14" /><span>{{ node.characters.join('，') }}</span></span
             >
           </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import FilterPanel from './FilterPanel.vue'
 import { computed } from 'vue'
-import { ChevronRight, X } from 'lucide-vue-next'
+import { ChevronDown, X, CheckCheck, Minus } from 'lucide-vue-next'
 import {
   type HierarchyFilter,
   type Five,
@@ -62,27 +63,11 @@ function all(level: number) {
       @click="emit('toggle')"
     >
       <slot /><strong>{{ label }}</strong
-      ><span v-if="active" class="count">已筛选</span><ChevronRight :size="15" />
+      ><span v-if="active" class="count">已筛选</span><ChevronDown :size="14" :class="{ rotated: open }" />
     </button>
-    <div
-      v-if="open"
-      class="hierarchy-panel"
-      role="region"
-      :aria-label="`${label}二级筛选栏`"
-      @keydown.esc.stop="emit('close')"
-    >
-      <header>
-        <strong>{{ label }}筛选</strong
-        ><button
-          class="icon-button"
-          :aria-label="`关闭${label}筛选`"
-          @click="emit('close')"
-        >
-          <X :size="18" />
-        </button>
-      </header>
+    <FilterPanel v-if="open" :label="label" @close="emit('close')" @clear="reset">
       <div class="hierarchy-toolbar">
-        <span>展示层级</span>
+        <span>层级精确度</span>
         <div class="depth-options">
           <button
             v-for="level in 5"
@@ -91,15 +76,10 @@ function all(level: number) {
             :class="{ active: filter.depth === level }"
             @click="depth(level)"
           >
-            {{ level === 1 ? '1 级' : `1–${level} 级` }}
+            {{ level }}级
           </button>
         </div>
-        <button
-          class="secondary-button"
-          @click="reset"
-        >
-          清除{{ label }}筛选
-        </button>
+
       </div>
       <p v-if="filter.legacy" class="form-note">
         已保留旧版筛选；修改层级或选项后使用当前筛选方式。
@@ -123,14 +103,7 @@ function all(level: number) {
             <span
               class="all-checkbox"
               :class="{ checked: filter.selections[level - 1] === null }"
-              >{{
-                filter.selections[level - 1] === null
-                  ? '✓'
-                  : filter.selections[level - 1]!.length
-                    ? '−'
-                    : ''
-              }}</span
-            >全部
+              > <CheckCheck v-if="filter.selections[level - 1] === null" :size="13" /><Minus v-else-if="filter.selections[level - 1]!.length" :size="13" /></span>全部
           </button>
           <div class="hierarchy-values">
             <label
@@ -156,6 +129,6 @@ function all(level: number) {
           ><input v-model="showEmpty" type="checkbox" />显示无{{ label }}事件</label
         ><span class="form-note">未填上级的条目按下级内容分别列出，可单独筛选。</span>
       </footer>
-    </div>
+    </FilterPanel>
   </section>
 </template>

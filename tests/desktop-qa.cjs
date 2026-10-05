@@ -142,7 +142,7 @@ async function main() {
   assert.deepEqual(fit, { x: false, y: false })
   assert.deepEqual(errors, [])
   const actualVersion = await app.evaluate(({ app }) => app.getVersion())
-  assert.equal(actualVersion, '1.3.0')
+  assert.equal(actualVersion, require('../package.json').version)
   await fs.writeFile(
     path.join(out, phase + '-report.json'),
     JSON.stringify({ phase, version: actualVersion, checks, errors }, null, 2),

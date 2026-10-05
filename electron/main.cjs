@@ -7,6 +7,7 @@ let win,
   allowClose = false
 // A fixed identity keeps NSIS upgrades and local data attached to one app.
 app.setName('序时')
+if (process.platform === 'win32') app.setAppUserModelId('com.symplatt.xushi')
 app.setPath(
   'userData',
   process.env.XUSHI_TEST_DATA || path.join(app.getPath('appData'), 'Xushi'),

@@ -2,8 +2,8 @@ export const MAX_TIMELINES = 1000
 export const MAX_NODES = 10000
 export const timeLabels = ['时代', '朝代', '历法', '日期', '时刻'] as const
 export const themes = [
+  { id: 'mono', name: '黑白', color: '#161616', background: '#ffffff' },
   { id: 'grass', name: '草木', color: '#416b54', background: '#f0f4ea' },
-  { id: 'mono', name: '灰白', color: '#555b64', background: '#dadce0' },
   { id: 'pink', name: '烟粉', color: '#92717c', background: '#ded6d9' },
   { id: 'blue', name: '雾蓝', color: '#5f7786', background: '#d4dde2' },
   { id: 'gold', name: '黑金', color: '#d7b76b', background: '#24252c' },
@@ -62,6 +62,7 @@ export interface Summary {
 }
 export interface Settings {
   theme: string
+  filterPanel?: string
   visibleTime: boolean[]
   charactersOpen: boolean
   organizationsOpen: boolean
@@ -84,7 +85,7 @@ export const emptyFilters = (): Filters => ({
   characters: { all: true, values: [] },
 })
 export const defaults = (): Settings => ({
-  theme: 'grass',
+  theme: 'mono',
   visibleTime: [true, true, true, true, true],
   charactersOpen: false,
   countriesOpen: false,
@@ -412,6 +413,7 @@ export function normalizeSettings(
   if (themes.some((t) => t.id === value.theme)) settings.theme = String(value.theme)
   if (Array.isArray(value.visibleTime) && value.visibleTime.length === 5)
     settings.visibleTime = value.visibleTime.map(Boolean)
+  if (['time', 'location', 'countries', 'organizations', 'characters'].includes(String(value.filterPanel))) settings.filterPanel = String(value.filterPanel)
   settings.charactersOpen = value.charactersOpen === true
   settings.countriesOpen = value.countriesOpen === true
   settings.organizationsOpen = value.organizationsOpen === true
@@ -568,4 +570,24 @@ export function parseImport(value: unknown): Timeline[] {
   )
     throw new Error('请选择序时导出的 JSON 文件（1 至 1000 条时间轴）')
   return v.timelines.map(validateTimeline)
+}
+
+// Imports append independent nodes. Existing identifiers and manual order remain
+// authoritative; only previously unknown time names are appended in source order.
+export function mergeTimeline(current: Timeline, incoming: Timeline): Timeline {
+  if (current.nodes.length + incoming.nodes.length > MAX_NODES)
+    throw new Error('合并后将超过 10000 个节点上限')
+  const nodes = incoming.nodes.map((node) => ({
+    ...JSON.parse(JSON.stringify(node)) as TimelineNode,
+    id: uid(),
+  }))
+  return {
+    ...current,
+    nodes: [...current.nodes, ...nodes],
+    countries: sortedCharacters([...current.countries, ...incoming.countries]),
+    organizations: sortedCharacters([...current.organizations, ...incoming.organizations]),
+    characters: sortedCharacters([...current.characters, ...incoming.characters]),
+    timeOrder: mergeTimeOrder(current.timeOrder.map((values, i) =>
+      [...new Set([...values, ...incoming.timeOrder[i]])]) as TimeOrder, nodes),
+  }
 }

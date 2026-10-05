@@ -5,7 +5,7 @@ const fs = require('node:fs/promises'),
   assert = require('node:assert/strict')
 const { Store } = require('../electron/store.cjs')
 const root = path.resolve(__dirname, '..'),
-  out = path.join(root, 'output', process.env.XUSHI_QA_TAG || 'qa-1.3.0'),
+  out = path.join(root, 'output', process.env.XUSHI_QA_TAG || 'qa-1.4.0'),
   profile = path.join(out, 'profile')
 const blank = () => ['', '', '', '', ''],
   time = (date) => ['', '', '', date, '']
@@ -91,8 +91,36 @@ async function main() {
   assert.equal(await app.evaluate(({ app }) => app.getVersion()), require('../package.json').version)
   if (phase === 'create') {
     await count(4)
+    // Exercise the flexible center of every header rather than its icon or text.
+    const headings = page.locator('.sidebar-scroll .collapse-toggle')
+    assert.equal(await headings.count(), 5)
+    for (let i=0;i<5;i++) {
+      const h=headings.nth(i); const b=await h.boundingBox()
+      await h.click({position:{x:b.width * .68,y:b.height/2}})
+      assert.equal(await h.getAttribute('aria-expanded'),'true')
+      assert.equal(await page.locator('#filter-dock [role=region]').count(),1)
+      const geometry=await page.evaluate(()=>({panel:document.querySelector('#filter-dock').getBoundingClientRect().right,content:document.querySelector('.main-area').getBoundingClientRect().left}))
+      assert(geometry.content>=geometry.panel-1)
+      await h.click({position:{x:b.width * .68,y:b.height/2}})
+      assert.equal(await h.getAttribute('aria-expanded'),'false')
+    }
+    checks.push('All five header centers clickable; one independent dock pushes timeline right')
+    await page.getByRole('button',{name:/^时间范围/}).click()
+    for (const [name, options] of [['时代',['混沌','黎明']],['朝代',['唐','宋']],['历法',['光历','圣历']]]) {
+      const select=page.getByRole('combobox',{name:'筛选开始'+name,exact:true})
+      await select.selectOption(options[0]);await select.selectOption(options[1]);assert.equal(await select.inputValue(),options[1]);await select.selectOption('')
+    }
+    await page.getByRole('textbox',{name:'筛选开始日期',exact:true}).fill('1999')
+    await page.getByRole('textbox',{name:'筛选开始日期',exact:true}).press('Enter')
+    assert.equal(await page.getByRole('textbox',{name:'筛选开始日期',exact:true}).evaluate(el=>document.activeElement===el),false)
+    await click('取消时间筛选');await count(4);await click('关闭时间筛选')
+    checks.push('Re-select all three time categories and Enter blurs text input; individual reset')
     assert.equal(await page.locator('[placeholder],[data-placeholder]').count(), 0)
+    await page.locator('[data-node-id="d"] .event-card').dblclick()
+    assert.equal(await page.locator('[data-node-id="d"] .event-excerpt').innerText(),'长篇内容'.repeat(150))
+    await page.locator('[data-node-id="d"]').getByRole('button',{name:'收起全文',exact:true}).click()
     await click('已有国家 2')
+    assert.equal(await page.getByRole('checkbox',{name:'全部国家',exact:true}).evaluate(el=>getComputedStyle(el).borderTopWidth),'0px')
     await page.getByRole('checkbox', { name: '全部国家', exact: true }).click()
     await count(0)
     await page.getByRole('checkbox', { name: '筛选国家 南国', exact: true }).check()
@@ -101,14 +129,14 @@ async function main() {
     await count(4)
     await page.getByRole('checkbox', { name: '全部国家', exact: true }).click()
     await count(0)
-    await click('取消所有筛选')
+    await click('清空筛选')
     await count(4)
     await click('已有人物 2')
     await page.getByRole('checkbox', { name: '全部人物', exact: true }).click()
     await count(0)
     await page.getByRole('checkbox', { name: '筛选人物 Alice', exact: true }).check()
     await count(4)
-    await click('取消所有筛选')
+    await click('清空筛选')
     await click('已有组织 2')
     await page.getByRole('checkbox', { name: '全部组织', exact: true }).click()
     await count(0)
@@ -117,7 +145,7 @@ async function main() {
     checks.push(
       'Country/character/organization checkbox all, none, partial and global reset',
     )
-    await click('取消所有筛选')
+    await click('清空筛选')
     await count(4)
     await click('地点筛选')
     await click('2级')
@@ -134,15 +162,15 @@ async function main() {
     await count(1)
     assert.equal(await page.locator('[data-node-id="a"]').count(), 1)
     const bounds = await panel.boundingBox()
-    assert(bounds.width > 500)
+    assert(bounds.width >= 340)
     await page.screenshot({ path: path.join(out, 'location-overlay.png') })
     await click('关闭地点筛选')
-    await click('取消所有筛选')
+    await click('清空筛选')
     await count(4)
     checks.push(
       'Sparse third-level locations selectable/excludable from second-level overlay',
     )
-    await page.locator('.time-filter summary').click()
+    await page.getByRole('button', {name: /^时间范围/}).click()
     await fill('筛选开始日期', '2000.4')
     await fill('筛选结束日期', '2000.5')
     await count(2)
@@ -151,7 +179,7 @@ async function main() {
     await fill('筛选开始日期', '')
     await fill('筛选结束日期', '1999')
     await count(3)
-    await click('取消所有筛选')
+    await click('清空筛选')
     await count(4)
     checks.push('Partial range overlap, single-ended and coarse precision filters')
     await page.locator('[data-node-id="a"] .event-card').hover()
@@ -188,6 +216,8 @@ async function main() {
     assert(!(await read()).nodes.some((n) => n.id === 'b'))
     checks.push('One-click node deletion without modal')
     await click('显示设置')
+    assert.equal(await page.getByText('显示的时间层级',{exact:true}).count(),0)
+    assert.equal(await page.locator('.theme-grid button').first().innerText(),'黑白')
     const eras = page.locator('.order-section').first()
     await eras.locator('summary').click()
     const first = eras.locator('li').first(),
@@ -211,6 +241,7 @@ async function main() {
     await save()
     assert.deepEqual((await read()).timeOrder[0], ['黄昏', '黎明', '混沌'])
     checks.push('Long-press pointer drag reorders time categories and saves')
+    if (!await page.getByRole('region', {name:'时间二级筛选栏'}).count()) await page.getByRole('button', {name:/^时间范围/}).click()
     await fill('筛选开始日期', '1999')
     await save()
     await page.screenshot({ path: path.join(out, 'main-gold.png') })
@@ -238,7 +269,7 @@ async function main() {
     checks.push(
       'JSON v4 native-dialog export/import preserves labels, events, filters and manual order in a new timeline',
     )
-    await click('取消所有筛选')
+    await click('清空筛选')
     await app.evaluate(({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].setSize(1060, 700),
     )
@@ -253,9 +284,10 @@ async function main() {
     await page.screenshot({ path: path.join(out, 'minimum-location.png') })
     await click('关闭地点筛选')
     await click('显示设置')
-    await click('灰白')
+    await click('黑白')
     await page.keyboard.press('Escape')
     await page.screenshot({ path: path.join(out, 'minimum-mono.png') })
+    if (!await page.getByRole('region', {name:'时间二级筛选栏'}).count()) await page.getByRole('button', {name:/^时间范围/}).click()
     await fill('筛选开始日期', '1999')
     await save()
     checks.push(
@@ -270,12 +302,9 @@ async function main() {
       '观测部',
       '研究部',
     ])
-    await click('取消所有筛选')
+    await click('清空筛选')
     await count(3)
-    await page
-      .locator('[data-node-id="d"]')
-      .getByRole('button', { name: '显示全文', exact: true })
-      .click()
+    await page.locator('[data-node-id="d"] .event-card').dblclick()
     assert.equal(
       await page.locator('[data-node-id="d"] .event-excerpt').innerText(),
       '长篇内容'.repeat(150),

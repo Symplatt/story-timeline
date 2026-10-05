@@ -129,7 +129,7 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
       ><span v-if="!knownOrganizations.length" class="muted">暂无组织</span>
     </div>
     <label class="divided"
-      >角色（选填，多个以空格分隔）<input v-model="names" aria-label="角色标签"
+      >人物（选填，多个以空格分隔）<input v-model="names" aria-label="人物标签"
     /></label>
     <button
       type="button"
@@ -137,7 +137,7 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
       :aria-expanded="knownOpen"
       @click="knownOpen = !knownOpen"
     >
-      已有角色 <span class="count">{{ knownCharacters.length }}</span
+      已有人物 <span class="count">{{ knownCharacters.length }}</span
       ><ChevronDown :size="14" :class="{ rotated: knownOpen }" />
     </button>
     <div v-if="knownOpen" class="character-suggestions">
@@ -149,7 +149,7 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
         @click="names = characterList(names + ' ' + name).join(' ')"
       >
         {{ name }}</button
-      ><span v-if="!knownCharacters.length" class="muted">暂无角色</span>
+      ><span v-if="!knownCharacters.length" class="muted">暂无人物</span>
     </div>
     <div class="form-actions">
       <small v-if="!isNew && !valid">事件为空，尚未保存此修改</small

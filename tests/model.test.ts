@@ -5,6 +5,7 @@ import {
   compareNodes,
   createNodeComparator,
   mergeTimeOrder,
+  mergeTimeline,
   emptyTimeOrder,
   comparePart,
   displayDate,
@@ -20,6 +21,38 @@ import {
   hierarchyOption,
   matchesTimeRange,
 } from '../src/model'
+
+describe('single timeline merge', () => {
+  it('preserves current metadata and order, appends independent nodes and tag registries', () => {
+    const current = newTimeline('当前'), incoming = newTimeline('导入')
+    current.timeOrder = [['黎明', '混沌'], [], []]
+    incoming.timeOrder = [['混沌', '黄昏', '黎明'], ['唐'], []]
+    current.nodes = [node(['黎明'])]
+    incoming.nodes = [node(['黄昏'])]
+    incoming.nodes[0].id = current.nodes[0].id
+    incoming.countries = ['北境']; incoming.organizations = ['研究部']; incoming.characters = ['甲']
+    current.filters.query = '保留'
+    const merged = mergeTimeline(current, incoming)
+    expect(merged.id).toBe(current.id)
+    expect(merged.title).toBe('当前')
+    expect(merged.filters).toEqual(current.filters)
+    expect(merged.timeOrder).toEqual([['黎明', '混沌', '黄昏'], ['唐'], []])
+    expect(merged.nodes).toHaveLength(2)
+    expect(merged.nodes[1].id).not.toBe(current.nodes[0].id)
+    merged.nodes[1].event[0].text = '独立副本'
+    expect(incoming.nodes[0].event[0].text).toBe('事件')
+    expect(merged.countries).toEqual(['北境'])
+    expect(merged.organizations).toEqual(['研究部'])
+    expect(merged.characters).toEqual(['甲'])
+  })
+  it('rejects oversized merge before touching existing data', () => {
+    const current = newTimeline('当前'), incoming = newTimeline('导入')
+    current.nodes = Array.from({length: MAX_NODES}, () => node())
+    incoming.nodes = [node()]
+    expect(() => mergeTimeline(current, incoming)).toThrow('10000')
+    expect(current.nodes).toHaveLength(MAX_NODES)
+  })
+})
 function node(time: string[] = []): ReturnType<typeof newNode> {
   return {
     ...newNode(),

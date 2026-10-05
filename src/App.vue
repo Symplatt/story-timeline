@@ -34,6 +34,7 @@ import {
   summary,
   createNodeComparator,
   mergeTimeOrder,
+  mergeTimeline,
   matches,
   emptyFilters,
   sortedCharacters,
@@ -42,7 +43,6 @@ import {
   validateTimeline,
   uid,
   themes,
-  timeLabels,
   normalizeSettings,
   type Timeline,
   type TimelineNode,
@@ -127,7 +127,8 @@ const visible = computed(() =>
 )
 const characters = computed(() => sortedCharacters(timeline.value?.characters || []))
 const countries = computed(() => sortedCharacters(timeline.value?.countries || []))
-const hierarchyOpen = ref<'location' | ''>('')
+const activeFilter = computed({ get: () => settings.value.filterPanel || '', set: (value: string) => { settings.value.filterPanel = value } })
+const importMode = ref('new')
 const filteredCatalog = computed(() =>
   catalog.value
     .filter((s) => s.title.toLowerCase().includes(libraryQuery.value.toLowerCase()))
@@ -251,7 +252,7 @@ function loadFilters(t: Timeline) {
   changingFilters = false
 }
 async function switchTimeline(id: string) {
-  hierarchyOpen.value = ''
+  activeFilter.value = ''
   if (loading.value) return
   if (
     editing.value &&
@@ -449,9 +450,8 @@ async function confirm() {
 }
 async function prepareImport(raw: unknown) {
   const ts = parseImport(raw)
-  if (catalog.value.length + ts.length > MAX_TIMELINES)
-    throw new Error(`导入 ${ts.length} 条后将超过 1000 条上限，请先整理时间轴库`)
   imported.value = ts
+  importMode.value = 'new'
   modal.value = 'import'
 }
 async function importFile() {
@@ -476,6 +476,16 @@ async function commitImport() {
   )
     throw new Error('请先完成或取消当前节点，再导入时间轴')
   await flush()
+  if (importMode.value === 'merge' && imported.value.length === 1 && timeline.value) {
+    modify(mergeTimeline(timeline.value, imported.value[0]))
+    await flush()
+    imported.value = []
+    modal.value = ''
+    notify('已合并到当前时间轴')
+    return
+  }
+  if (catalog.value.length + imported.value.length > MAX_TIMELINES)
+    throw new Error('导入后将超过 1000 条时间轴上限')
   const ts = imported.value.map((t) => ({
     ...clone(t),
     id: uid(),
@@ -528,6 +538,13 @@ watch(modal, async (value) => {
   } else previousFocus?.focus()
 })
 function keydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.isComposing && e.target instanceof HTMLInputElement && !['checkbox', 'radio', 'file'].includes(e.target.type)) {
+    e.preventDefault()
+    e.stopPropagation()
+    e.target.blur()
+    return
+  }
+  if (e.key === 'Escape' && !modal.value) activeFilter.value = ''
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
     e.preventDefault()
     run(async () => {
@@ -560,7 +577,7 @@ function beforeUnload(e: BeforeUnloadEvent) {
   }
 }
 onMounted(async () => {
-  document.addEventListener('keydown', keydown)
+  document.addEventListener('keydown', keydown, true)
   window.addEventListener('beforeunload', beforeUnload)
   try {
     const loaded = await storage.load()
@@ -599,7 +616,7 @@ onMounted(async () => {
 onUnmounted(() => {
   clearTimeout(timer)
   clearTimeout(toastTimer)
-  document.removeEventListener('keydown', keydown)
+  document.removeEventListener('keydown', keydown, true)
   window.removeEventListener('beforeunload', beforeUnload)
 })
 </script>
@@ -659,7 +676,7 @@ onUnmounted(() => {
       <p>{{ blocked }}</p>
       <p>请保留 %APPDATA%\Xushi\workspace 中的文件，修复后重新启动。</p>
     </div>
-    <div v-else class="workspace" :aria-busy="loading || !ready">
+    <div v-else class="workspace" :class="{ 'filter-open': !!activeFilter, 'location-open': activeFilter === 'location' }" :aria-busy="loading || !ready">
       <aside class="sidebar">
         <div class="project-card">
           <button
@@ -683,14 +700,7 @@ onUnmounted(() => {
           <div class="section-heading">
             <Filter :size="15" /><span>筛选事件</span
             ><span v-if="filterCount" class="count">{{ filterCount }}</span
-            ><button
-              class="clear-filters"
-              title="清除筛选"
-              aria-label="取消所有筛选"
-              @click="filters = emptyFilters()"
-            >
-              <RotateCcw :size="14" />取消所有筛选
-            </button>
+>
           </div>
           <div class="search-box">
             <Search :size="15" /><input
@@ -705,40 +715,42 @@ onUnmounted(() => {
               <X :size="13" />
             </button>
           </div>
-          <TimeFilter v-model="filters" :order="timeline.timeOrder" />
+          <TimeFilter v-model="filters" :order="timeline.timeOrder" :open="activeFilter === 'time'" @update:open="activeFilter = $event ? 'time' : ''" />
           <HierarchyFilter
             v-model="filters.location"
             v-model:show-empty="filters.showNoLocation"
             label="地点"
             :paths="hierarchyPaths"
-            :open="hierarchyOpen === 'location'"
-            @toggle="hierarchyOpen = hierarchyOpen ? '' : 'location'"
-            @close="hierarchyOpen = ''"
+            :open="activeFilter === 'location'"
+            @toggle="activeFilter = activeFilter === 'location' ? '' : 'location'"
+            @close="activeFilter = ''"
             ><MapPin :size="15"
           /></HierarchyFilter>
           <TagFilter
             v-model="filters.countries"
-            v-model:open="settings.countriesOpen"
+            :open="activeFilter === 'countries'" @update:open="activeFilter = $event ? 'countries' : ''"
             label="国家"
             :options="countries"
             ><Flag :size="15"
           /></TagFilter>
           <TagFilter
             v-model="filters.organizations"
-            v-model:open="settings.organizationsOpen"
+            :open="activeFilter === 'organizations'" @update:open="activeFilter = $event ? 'organizations' : ''"
             label="组织"
             :options="organizations"
             ><Building2 :size="15"
           /></TagFilter>
           <TagFilter
             v-model="filters.characters"
-            v-model:open="settings.charactersOpen"
-            label="角色"
+            :open="activeFilter === 'characters'" @update:open="activeFilter = $event ? 'characters' : ''"
+            label="人物"
             :options="characters"
             ><Users :size="15"
           /></TagFilter>
         </div>
+        <button v-if="timeline" class="clear-filter-link clear-all-filters" @click="filters = emptyFilters()">清空筛选</button>
       </aside>
+      <div id="filter-dock" v-show="activeFilter && timeline" />
       <main class="main-area">
         <section class="timeline-panel">
           <TimelineView
@@ -854,17 +866,6 @@ onUnmounted(() => {
               >{{ theme.name }}
             </button>
           </div>
-          <div class="setting-row">
-            <strong>显示的时间层级</strong>
-            <p>仅改变卡片显示，完整时间始终参与排序。</p>
-            <div class="time-options">
-              <label v-for="(label, i) in timeLabels" :key="label" class="check-label"
-                ><input type="checkbox" v-model="settings.visibleTime[i]" />{{
-                  label
-                }}</label
-              >
-            </div>
-          </div>
           <TimeOrderEditor
             v-if="timeline"
             :model-value="timeline.timeOrder"
@@ -978,8 +979,13 @@ onUnmounted(() => {
             已检查 {{ imported.length }} 条时间轴、{{
               imported.reduce((n, t) => n + t.nodes.length, 0).toLocaleString()
             }}
-            个节点。将作为新时间轴加入，已有作品保留。
+            个节点。
           </p>
+          <div v-if="imported.length === 1" class="import-mode" role="group" aria-label="导入方式">
+            <label><input type="radio" v-model="importMode" value="new" />新增时间轴</label>
+            <label><input type="radio" v-model="importMode" value="merge" :disabled="!timeline" />合并到当前时间轴<span v-if="timeline">：{{ timeline.title }}</span></label>
+            <p v-if="importMode === 'merge'" class="form-note">保留当前名称、简介和筛选；导入节点追加为新节点，已有时间顺序优先。</p>
+          </div>
           <div class="import-list">
             <p v-for="(t, i) in imported" :key="i">
               {{ t.title }}
@@ -1019,7 +1025,7 @@ onUnmounted(() => {
             </p>
             <p>
               <strong>阅读与编辑</strong>时间轴上下滚动。超过 100
-              字的事件点击“显示全文”在原卡片展开；屏蔽文字悬停或键盘聚焦可见。节点旁的编辑、删除按钮在悬停或键盘聚焦时出现；删除节点立即生效。点击空白处取消选择。
+              字的事件双击卡片或点击“显示全文”在原卡片展开；屏蔽文字悬停或键盘聚焦可见。节点旁的编辑、删除按钮在悬停或键盘聚焦时出现；删除节点立即生效。点击空白处取消选择。
             </p>
             <p>
               <strong>时间排序</strong
@@ -1029,16 +1035,16 @@ onUnmounted(() => {
             </p>
             <p>
               <strong>筛选</strong
-              >地点在二级侧栏选择展示层级与各级选项，缺失上级的条目按下级内容单独列出。国家、组织、角色均可多选；勾选“全部”全选，取消则全不选。时间范围包含边界及部分相交的时间段，可只填一端。不同筛选类别同时生效。
+              >地点在二级侧栏选择展示层级与各级选项，缺失上级的条目按下级内容单独列出。国家、组织、人物均可多选；勾选“全部”全选，取消则全不选。时间范围包含边界及部分相交的时间段，可只填一端。不同筛选类别同时生效。
             </p>
             <p>
-              <strong>国家、组织与角色</strong
+              <strong>国家、组织与人物</strong
               >输入时以空格分隔，按字母／拼音排列，已有清单可折叠。
             </p>
             <p>
               <strong>自动保存与备份</strong>修改后约 0.65 秒自动保存，Ctrl+S
               立即保存。未完成节点在重启后恢复。JSON
-              可备份当前时间轴或完整库，导入时作为新时间轴加入。数据位于
+              可备份当前时间轴或完整库，单条导入可选择新增时间轴或合并到当前时间轴。数据位于
               %APPDATA%\Xushi\workspace，更新和卸载保留数据。
             </p>
             <p class="form-note">屏蔽是阅读效果，JSON 内仍含原文，不是加密。</p>

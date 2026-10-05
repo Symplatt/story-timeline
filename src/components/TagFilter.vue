@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChevronDown, Check, Minus, X } from 'lucide-vue-next'
+import { ChevronDown, CheckCheck, Minus, X } from 'lucide-vue-next'
+import FilterPanel from './FilterPanel.vue'
 import { type TagSelection } from '../model'
 const props = defineProps<{ label: string; options: string[] }>()
 const selection = defineModel<TagSelection>({ required: true })
@@ -40,6 +41,7 @@ function toggle(name: string) {
       ><span class="count">{{ options.length }}</span
       ><ChevronDown :size="14" :class="{ rotated: open }" />
     </button>
+    <FilterPanel v-if="open" :label="label" @close="open = false" @clear="selection = { all: true, values: [] }">
     <div v-if="!selection.all" class="active-filter">
       <span>{{ selection.values.length ? selection.values.join('，') : '全不选' }}</span
       ><button
@@ -59,7 +61,7 @@ function toggle(name: string) {
         @click="selection = { all: !all, values: [] }"
       >
         <span class="all-checkbox" :class="{ checked: all || partial }"
-          ><Check v-if="all" :size="13" /><Minus v-else-if="partial" :size="13" /></span
+          ><CheckCheck v-if="all" :size="13" /><Minus v-else-if="partial" :size="13" /></span
         >全部{{ label }}
       </button>
       <label v-if="options.length > 8" class="filter-search"
@@ -79,5 +81,6 @@ function toggle(name: string) {
         </p>
       </div>
     </div>
+    </FilterPanel>
   </section>
 </template>
