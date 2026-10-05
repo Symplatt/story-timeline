@@ -767,9 +767,14 @@ export function timeOptions(
 export function nodeTimeError(
   node: TimelineNode,
   others: TimelineNode[],
-  known: TimeName[] = [],
+  known?: TimeName[],
 ): string {
-  const parents = timeParents(others, known)
+  // The persisted registry is authoritative for the node being edited. Its
+  // autosaved intermediate input must not establish new ownership per keystroke.
+  const parents = timeParents(
+    known ? others.filter((n) => n.id !== node.id) : others,
+    known,
+  )
   const original = others.find((n) => n.id === node.id)
   const unchanged = (time: Five, index: number) =>
     [original?.time, original?.endTime].some(

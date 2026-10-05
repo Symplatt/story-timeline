@@ -716,6 +716,19 @@ describe('1.6 persistent time ancestry', () => {
     changed.time[4] = ''
     expect(nodeTimeError(changed, [original])).toBe('')
   })
+  it('does not lock provisional autosaved names while changing multiple fields', () => {
+    const original = qing(),
+      known = mergeTimeNames([], [original])
+    const intermediate = structuredClone(original)
+    intermediate.time[2] = '洪武'
+    intermediate.time[3] = ''
+    intermediate.time[4] = ''
+    const completed = structuredClone(intermediate)
+    completed.time[1] = '明'
+    expect(nodeTimeError(completed, [intermediate], known)).toBe('')
+    completed.time[2] = '乾隆'
+    expect(nodeTimeError(completed, [intermediate], known)).toContain('乾隆')
+  })
   it('preserves constraints after deleting or renaming the last node and reopening', () => {
     const t = newTimeline('归属')
     t.nodes = [qing()]

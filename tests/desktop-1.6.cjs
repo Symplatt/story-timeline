@@ -284,7 +284,27 @@ async function main() {
       'true',
     )
   await click('完成')
-  checks.push('Editor lists persist across openings; clock requires date')
+  // Changing several fields must validate against completed ownership, not
+  // an intermediate value autosaved earlier in the same edit session.
+  await page.locator('[data-node-id=ming] .event-card').hover()
+  await page
+    .locator('[data-node-id=ming]')
+    .getByRole('button', { name: /编辑第/ })
+    .click()
+  await page.getByRole('textbox', { name: '历法', exact: true }).fill('临时新历')
+  await page.keyboard.press('Control+s')
+  await page.getByText('已自动保存', { exact: true }).waitFor()
+  await page.getByRole('textbox', { name: '朝代', exact: true }).fill('新朝')
+  assert.equal(
+    await page.getByRole('button', { name: '完成', exact: true }).isDisabled(),
+    false,
+  )
+  await page.getByRole('textbox', { name: '朝代', exact: true }).fill('明')
+  await page.getByRole('textbox', { name: '历法', exact: true }).fill('')
+  await click('完成')
+  checks.push(
+    'Editor lists persist; clock requires date; provisional autosaves do not lock new names',
+  )
   await click('显示设置')
   await page.getByRole('textbox', { name: '地点1级名称', exact: true }).fill('洲')
   const dynasty = page.locator('.order-section').nth(1)
