@@ -7,6 +7,7 @@ const props = defineProps<{
   node: TimelineNode
   knownCharacters: string[]
   knownCountries: string[]
+  knownOrganizations: string[]
   isNew: boolean
 }>()
 const emit = defineEmits<{
@@ -16,7 +17,9 @@ const emit = defineEmits<{
 }>()
 const draft = ref<TimelineNode>(JSON.parse(JSON.stringify(props.node)))
 const names = ref(draft.value.characters.join(' ')),
-  countries = ref(draft.value.countries.join(' '))
+  countries = ref(draft.value.countries.join(' ')),
+  organizations = ref(draft.value.organizations.join(' '))
+const organizationsOpen = ref(false)
 const knownOpen = ref(false),
   countriesOpen = ref(false)
 const valid = computed(() => !!plainText(draft.value.event).trim())
@@ -26,10 +29,13 @@ function copy(): TimelineNode {
       ...draft.value,
       characters: characterList(names.value),
       countries: characterList(countries.value),
+      organizations: characterList(organizations.value),
     }),
   )
 }
-watch([draft, names, countries], () => emit('change', copy()), { deep: true })
+watch([draft, names, countries, organizations], () => emit('change', copy()), {
+  deep: true,
+})
 </script>
 <template>
   <form class="node-form" @submit.prevent="valid && emit('done', copy())">
@@ -61,9 +67,6 @@ watch([draft, names, countries], () => emit('change', copy()), { deep: true })
         }}<input
           v-model="draft.time[i]"
           :aria-label="draft.endTime ? '开始' + label : label"
-          :placeholder="
-            ['如 黄昏纪元', '如 唐', '如 光历10年', '如 1234年5月6日', '如 17:00:73'][i]
-          "
       /></label>
     </div>
     <template v-if="draft.endTime"
@@ -79,17 +82,8 @@ watch([draft, names, countries], () => emit('change', copy()), { deep: true })
         >{{ i }} 级<input v-model="draft.location[i - 1]" :aria-label="`地点${i}级`"
       /></label>
     </div>
-    <div class="section-label divided">组织（选填）</div>
-    <div class="level-grid">
-      <label v-for="i in 5" :key="i"
-        >{{ i }} 级<input v-model="draft.organization[i - 1]" :aria-label="`组织${i}级`"
-      /></label>
-    </div>
     <label class="divided"
-      >国家（选填）<input
-        v-model="countries"
-        aria-label="国家标签"
-        placeholder="输入多个国家，以空格分隔"
+      >国家（选填，多个以空格分隔）<input v-model="countries" aria-label="国家标签"
     /></label>
     <button
       type="button"
@@ -112,10 +106,30 @@ watch([draft, names, countries], () => emit('change', copy()), { deep: true })
       ><span v-if="!knownCountries.length" class="muted">暂无国家</span>
     </div>
     <label class="divided"
-      >角色（选填）<input
-        v-model="names"
-        aria-label="角色标签"
-        placeholder="输入多个角色，以空格分隔"
+      >组织（选填，多个以空格分隔）<input v-model="organizations" aria-label="组织标签"
+    /></label>
+    <button
+      type="button"
+      class="collapse-toggle suggestion-toggle"
+      :aria-expanded="organizationsOpen"
+      @click="organizationsOpen = !organizationsOpen"
+    >
+      已有组织 <span class="count">{{ knownOrganizations.length }}</span
+      ><ChevronDown :size="14" :class="{ rotated: organizationsOpen }" />
+    </button>
+    <div v-if="organizationsOpen" class="character-suggestions">
+      <button
+        v-for="name in knownOrganizations"
+        :key="name"
+        type="button"
+        class="tag"
+        @click="organizations = characterList(organizations + ' ' + name).join(' ')"
+      >
+        {{ name }}</button
+      ><span v-if="!knownOrganizations.length" class="muted">暂无组织</span>
+    </div>
+    <label class="divided"
+      >角色（选填，多个以空格分隔）<input v-model="names" aria-label="角色标签"
     /></label>
     <button
       type="button"
@@ -138,9 +152,7 @@ watch([draft, names, countries], () => emit('change', copy()), { deep: true })
       ><span v-if="!knownCharacters.length" class="muted">暂无角色</span>
     </div>
     <div class="form-actions">
-      <small>{{
-        isNew ? '完成后自动保存' : valid ? '修改自动保存' : '事件为空，尚未保存此修改'
-      }}</small
+      <small v-if="!isNew && !valid">事件为空，尚未保存此修改</small
       ><span class="spacer" /><button
         class="secondary-button"
         type="button"

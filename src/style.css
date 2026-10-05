@@ -69,11 +69,7 @@ textarea {
   background: var(--input);
   outline: none;
 }
-input::placeholder,
-textarea::placeholder {
-  color: var(--muted);
-  opacity: 0.85;
-}
+
 textarea {
   resize: vertical;
 }
@@ -822,11 +818,6 @@ input[type='checkbox'] {
   font-size: 14px;
   outline: 0;
 }
-.event-input:empty::before {
-  content: attr(data-placeholder);
-  color: var(--muted);
-  pointer-events: none;
-}
 .suggestion-toggle {
   width: 100%;
   color: var(--muted);
@@ -1105,4 +1096,242 @@ input[type='checkbox'] {
   * {
     transition: none !important;
   }
+}
+/* Filter groups have complete boundaries so expanded content stays attributable. */
+.workspace {
+  position: relative;
+}
+.sidebar-scroll {
+  padding: 20px 16px 36px 20px;
+}
+.sidebar-scroll > .section-heading {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.clear-filters {
+  width: 100%;
+  justify-content: flex-start;
+  border: 1px solid var(--line);
+  padding: 9px 10px;
+  margin: 4px 0 8px;
+}
+.filter-section {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  margin: 18px 0;
+  padding: 16px 12px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+.filter-section:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.filter-section .section-heading {
+  margin: 0;
+  width: 100%;
+}
+.filter-section .section-heading strong,
+.filter-section summary strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.filter-section .collapse-toggle svg:last-child {
+  margin-left: auto;
+}
+.filter-body {
+  padding-top: 16px;
+}
+.filter-values {
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding-top: 10px;
+}
+.filter-values .check-label {
+  padding: 8px 0;
+}
+.select-all-button {
+  justify-content: flex-start;
+  width: 100%;
+  border: 1px solid var(--edge);
+  background: var(--input);
+  padding: 10px 0;
+  gap: 11px;
+  border-radius: 6px;
+  text-align: left;
+}
+.select-all-button .all-checkbox {
+  margin-left: -1px;
+}
+.all-checkbox {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--muted);
+  border-radius: 5px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.all-checkbox.checked {
+  background: var(--text);
+  color: var(--surface);
+  border-color: var(--text);
+}
+.filter-search {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--muted);
+}
+.hierarchy-panel {
+  position: absolute;
+  z-index: 15;
+  left: 274px;
+  top: 0;
+  bottom: 0;
+  width: min(940px, calc(100% - 274px));
+  background: var(--surface);
+  border-right: 1px solid var(--edge);
+  box-shadow: 14px 0 30px #0002;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+}
+.hierarchy-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 17px;
+}
+.hierarchy-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.depth-options {
+  display: flex;
+  gap: 6px;
+}
+.depth-options button {
+  border: 1px solid var(--line);
+  padding: 8px;
+}
+.depth-options button.active {
+  border-color: var(--text);
+  background: var(--soft);
+}
+.hierarchy-columns {
+  display: flex;
+  overflow-x: auto;
+  gap: 18px;
+  padding-bottom: 12px;
+  flex-shrink: 0;
+}
+.hierarchy-column {
+  flex: 0 0 180px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+.hierarchy-column h3 {
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+.hierarchy-values {
+  max-height: min(440px, 48vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  margin-top: 12px;
+}
+.hierarchy-values .check-label {
+  align-items: flex-start;
+  padding: 10px 0;
+}
+.hierarchy-values .check-label span {
+  overflow-wrap: anywhere;
+}
+.hierarchy-panel footer {
+  display: grid;
+  gap: 12px;
+}
+.time-filter fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 20px;
+  min-width: 0;
+}
+.time-filter legend {
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+.time-filter label {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0;
+  color: var(--muted);
+}
+.time-filter input {
+  width: 100%;
+  padding: 7px;
+  color: var(--text);
+}
+.event-card-head {
+  margin-left: -8px;
+}
+.country-tag {
+  color: var(--text);
+}
+.hierarchy-value sup {
+  font-size: 9px;
+  margin-right: 4px;
+  line-height: 0;
+}
+.organization-paths {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 22px;
+}
+.time-order-list li {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.time-order-list li.dragging {
+  opacity: 0.6;
+  cursor: grabbing;
+  background: var(--soft);
+}
+.time-order-list li.drop-target {
+  box-shadow: inset 0 -2px var(--green);
+}
+@media (max-width: 1150px) {
+  .hierarchy-panel {
+    left: 250px;
+    width: calc(100% - 250px);
+  }
+}
+
+.node-form .divided {
+  margin-top: 40px;
+}
+.node-form > .section-label,
+.node-form > label.divided {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.node-form > label.divided {
+  gap: 14px;
+}
+.node-form > label.divided input {
+  font-weight: 400;
+}
+.node-form .section-label {
+  margin-bottom: 16px;
 }

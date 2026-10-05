@@ -17,11 +17,15 @@ import {
   sortedCharacters,
   characterList,
   MAX_NODES,
+  hierarchyOption,
+  matchesTimeRange,
 } from '../src/model'
 function node(time: string[] = []): ReturnType<typeof newNode> {
   return {
     ...newNode(),
-    time: [...time, ...Array(5 - time.length).fill('')] as ReturnType<typeof newNode>['time'],
+    time: [...time, ...Array(5 - time.length).fill('')] as ReturnType<
+      typeof newNode
+    >['time'],
     event: [{ text: '事件', marks: [] }],
   }
 }
@@ -91,7 +95,9 @@ describe('Chinese date display', () => {
 })
 describe('time ranges and manual era order', () => {
   it('places the requested 1999–2000.5 range after 1888 and before the 1999 point', () => {
-    const points = ['1888', '1999', '2000', '2023'].map((value) => node(['', '', '', value]))
+    const points = ['1888', '1999', '2000', '2023'].map((value) =>
+      node(['', '', '', value]),
+    )
     const range = node(['', '', '', '1999'])
     range.endTime = ['', '', '', '2000.5', '']
     expect([...points, range].sort(compareNodes)).toEqual([
@@ -112,9 +118,9 @@ describe('time ranges and manual era order', () => {
       range,
       ...points.slice(1),
     ])
-    expect(compareNodes(node(['', '', '', '1999']), node(['', '', '', '1999.5']))).toBeLessThan(
-      0,
-    )
+    expect(
+      compareNodes(node(['', '', '', '1999']), node(['', '', '', '1999.5'])),
+    ).toBeLessThan(0)
   })
   it('orders nested and overlapping ranges by start, then range before point, then end', () => {
     const a = node(['', '', '', '1999']),
@@ -169,7 +175,9 @@ describe('time ranges and manual era order', () => {
     ])
     const t = newTimeline('旧版作品')
     t.nodes = [range]
-    expect(validateTimeline(t).timeOrder).toEqual(mergeTimeOrder(emptyTimeOrder(), [range]))
+    expect(validateTimeline(t).timeOrder).toEqual(
+      mergeTimeOrder(emptyTimeOrder(), [range]),
+    )
   })
   it('still accepts empty optional endpoints and places unknown starts last', () => {
     const range = node()
@@ -198,7 +206,9 @@ describe('time ranges and manual era order', () => {
 })
 describe('event preview and filtering', () => {
   it('counts 100 Unicode characters rather than UTF-16 units', () => {
-    const runs = [{ text: '龙'.repeat(99) + '🐉结尾', marks: ['bold', 'spoiler'] as const }]
+    const runs = [
+      { text: '龙'.repeat(99) + '🐉结尾', marks: ['bold', 'spoiler'] as const },
+    ]
     const p = preview(runs as any)
     expect(Array.from(p.runs[0].text)).toHaveLength(100)
     expect(p.runs[0].text.endsWith('🐉')).toBe(true)
@@ -215,54 +225,64 @@ describe('event preview and filtering', () => {
     expect(p.runs[1].text).toBe('ab')
     expect(p.runs[1].marks).toEqual(['italic'])
   })
-  it('matches multiple names with OR and selected levels at the same slot', () => {
-    const n = node()
+  it('selects sparse places independently at a missing upper level', () => {
+    const a = node(),
+      b = node(),
+      f = emptyFilters()
+    a.location[2] = '北城'
+    b.location[2] = '南城'
+    f.location.depth = 2
+    f.location.selections[1] = [hierarchyOption(a.location, 1).key]
+    expect(matches(a, f)).toBe(true)
+    expect(matches(b, f)).toBe(false)
+    f.location.selections[1] = []
+    expect(matches(a, f)).toBe(false)
+    f.location.selections[1] = null
+    expect(matches(a, f)).toBe(true)
+  })
+  it('ignores selections deeper than the displayed depth and combines visible levels', () => {
+    const n = node(),
+      f = emptyFilters()
     n.location = ['世界', '大陆', '城', '', '']
-    const f = emptyFilters()
-    f.location.values = ['城', '别的城']
+    f.location.depth = 2
+    f.location.selections[2] = []
     expect(matches(n, f)).toBe(true)
-    f.location.levels = [1, 2]
-    expect(matches(n, f)).toBe(false)
-    f.location.levels = [2, 3]
-    expect(matches(n, f)).toBe(true)
-    f.location.values = []
-    expect(matches(n, f)).toBe(true)
-    f.location.levels = [4, 5]
+    f.location.selections[0] = [hierarchyOption(n.location, 0).key]
+    f.location.selections[1] = []
     expect(matches(n, f)).toBe(false)
   })
-  it('shows unknown locations only when requested, even with filters', () => {
+  it('shows unknown locations only when requested', () => {
     const f = emptyFilters()
-    f.location.values = ['世界']
+    f.location.selections[0] = []
     expect(matches(node(), f)).toBe(true)
     f.showNoLocation = false
     expect(matches(node(), f)).toBe(false)
   })
-  it('filters organizations independently', () => {
-    const f = emptyFilters()
-    f.showNoOrganization = false
-    expect(matches(node(), f)).toBe(false)
-    const n = node()
-    n.organization[4] = '分部'
-    f.organization.values = ['分部']
-    f.organization.levels = [5]
-    expect(matches(n, f)).toBe(true)
-    f.organization.values = ['总部']
-    expect(matches(n, f)).toBe(false)
-  })
-  it('combines country, character and free text', () => {
-    const n = node()
+  it('supports OR within country, organization and character groups and AND across groups', () => {
+    const n = node(),
+      f = emptyFilters()
     n.countries = ['北境', '南国']
     n.characters = ['Alice']
-    const f = emptyFilters()
-    f.countries = ['西境', '南国']
-    f.character = 'Alice'
+    n.organizations = ['总部', '分部']
+    f.countries = { all: false, values: ['西境', '南国'] }
+    f.characters = { all: false, values: ['Alice', 'Bob'] }
+    f.organizations = { all: false, values: ['分部'] }
     f.query = '事'
     expect(matches(n, f)).toBe(true)
-    f.countries = ['西境']
+    f.organizations.values = ['错误']
     expect(matches(n, f)).toBe(false)
-    f.countries = []
-    f.query = '错误'
-    expect(matches(n, f)).toBe(false)
+  })
+  it('distinguishes all from none even for events without labels and after serialization', () => {
+    const t = newTimeline('筛选')
+    t.nodes = [node()]
+    for (const key of ['countries', 'characters', 'organizations'] as const) {
+      t.filters = emptyFilters()
+      t.filters[key] = { all: false, values: [] }
+      const copy = validateTimeline(JSON.parse(JSON.stringify(t)))
+      expect(matches(copy.nodes[0], copy.filters)).toBe(false)
+      t.filters[key].all = true
+      expect(matches(t.nodes[0], t.filters)).toBe(true)
+    }
   })
   it('deduplicates whitespace separated characters and sorts alphabetically', () => {
     expect(characterList('Zoe  Alice\nBob\tAlice')).toEqual(['Zoe', 'Alice', 'Bob'])
@@ -307,15 +327,18 @@ describe('capacity and import', () => {
       countries: ['北境'],
     })
     expect(migrated.countries).toEqual(['北境'])
-    expect(migrated.filters.location).toEqual({
+    expect(migrated.filters.location.legacy).toEqual({
       values: ['城市', '世界'],
       levels: [],
     })
-    expect(migrated.filters.countries).toEqual(['北境'])
+    expect(migrated.filters.countries).toEqual({
+      all: false,
+      values: ['北境'],
+    })
     expect(migrated.filters.showNoLocation).toBe(false)
-    expect(parseImport({ format: 'xushi', version: 2, timelines: [migrated] })[0]).toEqual(
-      migrated,
-    )
+    expect(
+      parseImport({ format: 'xushi', version: 2, timelines: [migrated] })[0],
+    ).toEqual(migrated)
   })
   it('retains countries in the known list after events are deleted', () => {
     const t = newTimeline('作品')
@@ -324,7 +347,7 @@ describe('capacity and import', () => {
   })
   it('rejects invalid selected hierarchy levels', () => {
     const t = newTimeline('作品')
-    t.filters.location.levels = [0, 6]
+    t.filters.location.depth = 6
     expect(() => validateTimeline(t)).toThrow('筛选层级')
   })
   it('restores a legacy draft and retained settings without obsolete display preferences', () => {
@@ -391,7 +414,7 @@ describe('capacity and import', () => {
     n.countries = ['北境']
     n.characters = ['Zoe']
     n.location = ['1', '2', '3', '4', '5']
-    n.organization = ['a', 'b', 'c', 'd', 'e']
+    n.organizations = ['a', 'b', 'c', 'd', 'e']
     t.nodes = [n]
     const [copy] = parseImport(
       JSON.parse(JSON.stringify({ format: 'xushi', version: 1, timelines: [t] })),
@@ -399,4 +422,73 @@ describe('capacity and import', () => {
     expect(copy.nodes).toEqual(t.nodes)
     expect(copy.characters).toEqual(['Zoe'])
   })
+})
+
+describe('inclusive time filtering and organization migration', () => {
+  const time = (date: string) =>
+    ['', '', '', date, ''] as ReturnType<typeof newNode>['time']
+  it.each([
+    ['1998', '2000', '1999', '2001', true],
+    ['2000', '2002', '1999', '2001', true],
+    ['1990', '2009', '1999', '2001', true],
+    ['1990', '1998', '1999', '2001', false],
+    ['2002', '2003', '1999', '2001', false],
+    ['2001.12.31', '', '1999', '2001', true],
+    ['1999', '', '1999.5', '2001', true],
+    ['2001', '2002', '1999', '2001', true],
+  ])('overlap %s–%s against %s–%s', (begin, end, low, high, result) => {
+    const n = node(time(begin))
+    if (end) n.endTime = time(end)
+    expect(matchesTimeRange(n, time(low), time(high))).toBe(result)
+  })
+  it('supports either open bound, unknown events, reversed bounds and clock precision', () => {
+    expect(matchesTimeRange(node(time('2000')), time('1999'))).toBe(true)
+    expect(matchesTimeRange(node(time('1998')), time('1999'))).toBe(false)
+    expect(matchesTimeRange(node(time('1998')), undefined, time('1999'))).toBe(true)
+    expect(matchesTimeRange(node(), time('1999'))).toBe(false)
+    expect(matchesTimeRange(node(time('2000')), time('2001'), time('1999'))).toBe(false)
+    const n = node(time('2000.5.1'))
+    n.time[4] = '17:00:73'
+    const upper = time('2000.5.1')
+    upper[4] = '17:00'
+    expect(matchesTimeRange(n, undefined, upper)).toBe(true)
+  })
+  it('uses manual epoch order for range bounds', () => {
+    const order: [string[], string[], string[]] = [['混沌', '黄昏', '黎明'], [], []]
+    expect(
+      matchesTimeRange(node(['黄昏']), node(['混沌']).time, node(['黎明']).time, order),
+    ).toBe(true)
+    expect(matchesTimeRange(node(['混沌']), node(['黄昏']).time, undefined, order)).toBe(
+      false,
+    )
+  })
+  it('migrates legacy organization levels into labels and keeps original names', () => {
+    const t: any = newTimeline('旧版')
+    const n: any = node()
+    delete n.organizations
+    n.organization = ['公会', '', '研究部', '', '']
+    t.nodes = [n]
+    delete t.organizations
+    const copy = parseImport({
+      format: 'xushi',
+      version: 3,
+      timelines: [t],
+    })[0]
+    expect(copy.nodes[0].organizations).toEqual(sortedCharacters(['公会', '研究部']))
+    expect(copy.organizations).toEqual(copy.nodes[0].organizations)
+    expect(copy.nodes[0]).not.toHaveProperty('organization')
+    expect(parseImport({ format: 'xushi', version: 4, timelines: [copy] })[0]).toEqual(
+      copy,
+    )
+  })
+})
+
+it('does not infer alphabetic order for unknown filter categories', () => {
+  expect(
+    matchesTimeRange(node(['黎明']), node(['未知纪元']).time, undefined, [
+      ['黎明'],
+      [],
+      [],
+    ]),
+  ).toBe(false)
 })

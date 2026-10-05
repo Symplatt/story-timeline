@@ -61,7 +61,11 @@ class Store {
   }
   async load() {
     const index = await this.index()
-    if (!Array.isArray(index.timelines) || index.timelines.length > 1000 || !index.settings)
+    if (
+      !Array.isArray(index.timelines) ||
+      index.timelines.length > 1000 ||
+      !index.settings
+    )
       throw new Error('本地目录格式错误，未覆盖数据')
     // A crash between a new document and its catalog write can leave an orphan.
     // Recover just those documents instead of reading every 10,000-node file.
@@ -80,7 +84,12 @@ class Store {
     return { ...index, recovered: !!this.recovered }
   }
   summary(t) {
-    return { id: t.id, title: t.title, count: t.nodes.length, updatedAt: t.updatedAt }
+    return {
+      id: t.id,
+      title: t.title,
+      count: t.nodes.length,
+      updatedAt: t.updatedAt,
+    }
   }
   check(t) {
     if (
@@ -105,13 +114,25 @@ class Store {
       )
         throw new Error('节点标识或事件内容无效')
       ids.add(n.id)
-      for (const key of ['time', 'location', 'organization'])
+      for (const key of ['time', 'location'])
         if (
           !Array.isArray(n[key]) ||
           n[key].length !== 5 ||
           n[key].some((x) => typeof x !== 'string')
         )
           throw new Error('层级格式无效')
+      const organizations = n.organizations ?? (n.organization ? [n.organization] : [])
+      if (
+        !Array.isArray(organizations) ||
+        organizations.some(
+          (value) =>
+            typeof value !== 'string' &&
+            (!Array.isArray(value) ||
+              value.length !== 5 ||
+              value.some((part) => typeof part !== 'string')),
+        )
+      )
+        throw new Error('组织格式无效')
     }
   }
   save(t) {
@@ -119,7 +140,8 @@ class Store {
       this.check(t)
       const index = await this.index(),
         pos = index.timelines.findIndex((x) => x.id === t.id)
-      if (pos < 0 && index.timelines.length >= 1000) throw new Error('最多保存 1000 条时间轴')
+      if (pos < 0 && index.timelines.length >= 1000)
+        throw new Error('最多保存 1000 条时间轴')
       await this.write(t.id, t)
       if (pos < 0) index.timelines.push(this.summary(t))
       else index.timelines[pos] = this.summary(t)

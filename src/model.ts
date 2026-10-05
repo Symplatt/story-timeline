@@ -17,24 +17,30 @@ export interface TimelineNode {
   time: Five
   endTime?: Five
   location: Five
-  organization: Five
+  organizations: string[]
   countries: string[]
   characters: string[]
   event: Run[]
   createdAt: string
 }
-export interface HierarchyFilter {
+export interface TagSelection {
+  all: boolean
   values: string[]
-  levels: number[]
+}
+export interface HierarchyFilter {
+  depth: number
+  selections: (string[] | null)[]
+  legacy?: { values: string[]; levels: number[] }
 }
 export interface Filters {
   query: string
   location: HierarchyFilter
-  organization: HierarchyFilter
+  organizations: TagSelection
   showNoLocation: boolean
-  showNoOrganization: boolean
-  countries: string[]
-  character: string
+  countries: TagSelection
+  characters: TagSelection
+  startTime?: Five
+  endTime?: Five
 }
 export interface Timeline {
   id: string
@@ -43,6 +49,7 @@ export interface Timeline {
   nodes: TimelineNode[]
   characters: string[]
   countries: string[]
+  organizations: string[]
   filters: Filters
   timeOrder: TimeOrder
   updatedAt: string
@@ -57,26 +64,31 @@ export interface Settings {
   theme: string
   visibleTime: boolean[]
   charactersOpen: boolean
+  organizationsOpen: boolean
   countriesOpen: boolean
   activeId: string
   draft?: { timelineId: string; node: TimelineNode; isNew: boolean }
 }
 export const five = (): Five => ['', '', '', '', '']
 export const emptyTimeOrder = (): TimeOrder => [[], [], []]
+export const emptyHierarchy = (): HierarchyFilter => ({
+  depth: 5,
+  selections: [null, null, null, null, null],
+})
 export const emptyFilters = (): Filters => ({
   query: '',
-  location: { values: [], levels: [] },
-  organization: { values: [], levels: [] },
+  location: emptyHierarchy(),
+  organizations: { all: true, values: [] },
   showNoLocation: true,
-  showNoOrganization: true,
-  countries: [],
-  character: '',
+  countries: { all: true, values: [] },
+  characters: { all: true, values: [] },
 })
 export const defaults = (): Settings => ({
   theme: 'grass',
   visibleTime: [true, true, true, true, true],
   charactersOpen: false,
   countriesOpen: false,
+  organizationsOpen: false,
   activeId: '',
 })
 export const uid = () => crypto.randomUUID()
@@ -87,6 +99,7 @@ export const newTimeline = (title: string): Timeline => ({
   nodes: [],
   characters: [],
   countries: [],
+  organizations: [],
   filters: emptyFilters(),
   timeOrder: emptyTimeOrder(),
   updatedAt: new Date().toISOString(),
@@ -95,7 +108,7 @@ export const newNode = (): TimelineNode => ({
   id: uid(),
   time: five(),
   location: five(),
-  organization: five(),
+  organizations: [],
   countries: [],
   characters: [],
   event: [],
@@ -200,16 +213,120 @@ export function preview(runs: Run[], limit = 100): { runs: Run[]; truncated: boo
   }
   return { runs: result, truncated: left < 0 }
 }
-export function matches(node: TimelineNode, f: Filters): boolean {
-  for (const key of ['location', 'organization'] as const) {
-    const empty = node[key].every((v) => !v)
-    if (empty) {
-      if (!(key === 'location' ? f.showNoLocation : f.showNoOrganization)) return false
-    } else if (!matchesHierarchy(node[key], f[key])) return false
+/** A missing ancestor is represented by its complete descendant path. This keeps
+ * sparse entries individually selectable even when only upper levels are shown. */
+export function hierarchyOption(
+  values: Five,
+  level: number,
+): { key: string; label: string } {
+  if (values[level]) return { key: JSON.stringify([values[level]]), label: values[level] }
+  const descendants = values
+    .slice(level + 1)
+    .map((value, i) => (value ? `${i + level + 2}级 ${value}` : ''))
+    .filter(Boolean)
+  return {
+    key: JSON.stringify(['', ...values.slice(level + 1)]),
+    label: descendants.length ? `未填写（${descendants.join(' / ')}）` : '未填写',
   }
-  if (f.countries.length && !node.countries.some((value) => f.countries.includes(value)))
+}
+export function matchesHierarchy(values: Five, filter: HierarchyFilter): boolean {
+  if (filter.legacy)
+    return values.some(
+      (value, i) =>
+        !!value &&
+        (!filter.legacy!.values.length || filter.legacy!.values.includes(value)) &&
+        (!filter.legacy!.levels.length || filter.legacy!.levels.includes(i + 1)),
+    )
+  return filter.selections
+    .slice(0, filter.depth)
+    .every(
+      (selection, i) =>
+        selection === null || selection.includes(hierarchyOption(values, i).key),
+    )
+}
+/** Filter bounds cover the full specified precision (a year includes all its
+ * months). Partial overlap is inclusive; missing bounds are open. */
+export function compareTimeBounds(a: Five, b: Five, order: TimeOrder): number {
+  const parts = (time: Five) => [
+    ...time.slice(0, 3),
+    ...(dateParts(time[3]) ?? [time[3]]).concat(['', '', '']).slice(0, 3),
+    ...time[4].split(':'),
+  ]
+  const aa = parts(a),
+    bb = parts(b)
+  const last = (values: string[]) => values.reduce((n, value, i) => (value ? i : n), -1)
+  for (let i = 0; i <= Math.min(last(aa), last(bb)); i++) {
+    const x = aa[i] || '',
+      y = bb[i] || ''
+    if (x === y) continue
+    if (!x || !y) return !x ? 1 : -1
+    if (i < 3) {
+      const rank = (value: string) => {
+        const index = order[i].indexOf(value)
+        return index < 0 ? Infinity : index
+      }
+      if (rank(x) !== rank(y)) return rank(x) < rank(y) ? -1 : 1
+      // An unregistered category cannot be assigned a historical rank.
+      if (x !== y) return 0
+    }
+    const c = natural.compare(x, y)
+    if (c) return c
+  }
+  return 0
+}
+export function matchesTimeRange(
+  node: TimelineNode,
+  start?: Five,
+  end?: Five,
+  order: TimeOrder = emptyTimeOrder(),
+): boolean {
+  const hasStart = start?.some(Boolean),
+    hasEnd = end?.some(Boolean)
+  if (!hasStart && !hasEnd) return true
+  if (
+    [start, end].some((bound) =>
+      bound?.slice(0, 3).some((value, i) => value && !order[i].includes(value)),
+    )
+  )
     return false
-  if (f.character && !node.characters.includes(f.character)) return false
+  const knownStart = node.time.some(Boolean),
+    knownEnd = node.endTime?.some(Boolean)
+  if (!knownStart && !knownEnd) return false
+  if (hasStart && hasEnd && compareTimeBounds(start!, end!, order) > 0) return false
+  const eventEnd = node.endTime || node.time
+  if (
+    hasStart &&
+    eventEnd.some(Boolean) &&
+    compareTimeBounds(eventEnd, start!, order) < 0
+  )
+    return false
+  if (hasEnd && knownStart && compareTimeBounds(node.time, end!, order) > 0) return false
+  return true
+}
+export function matches(
+  node: TimelineNode,
+  f: Filters,
+  timeOrder: TimeOrder = emptyTimeOrder(),
+): boolean {
+  if (!node.location.some(Boolean)) {
+    if (!f.showNoLocation) return false
+  } else if (!matchesHierarchy(node.location, f.location)) return false
+  if (
+    !f.organizations.all &&
+    !node.organizations.some((value) => f.organizations.values.includes(value))
+  )
+    return false
+  if (!matchesTimeRange(node, f.startTime, f.endTime, timeOrder)) return false
+  if (
+    !f.countries.all &&
+    !node.countries.some((value) => f.countries.values.includes(value))
+  )
+    return false
+  if (
+    !f.characters.all &&
+    !node.characters.some((value) => f.characters.values.includes(value))
+  )
+    return false
   const q = f.query.trim().toLocaleLowerCase()
   return (
     !q ||
@@ -218,7 +335,7 @@ export function matches(node: TimelineNode, f: Filters): boolean {
       ...node.time,
       ...(node.endTime || []),
       ...node.location,
-      ...node.organization,
+      ...node.organizations.flat(),
       ...node.countries,
       ...node.characters,
     ]
@@ -227,25 +344,43 @@ export function matches(node: TimelineNode, f: Filters): boolean {
       .includes(q)
   )
 }
-/** Within one category selections are alternatives. Names and levels, when both
- * selected, must match the same occupied slot; categories combine with AND. */
-export function matchesHierarchy(values: Five, filter: HierarchyFilter): boolean {
-  return values.some(
-    (value, index) =>
-      !!value &&
-      (!filter.values.length || filter.values.includes(value)) &&
-      (!filter.levels.length || filter.levels.includes(index + 1)),
-  )
-}
 function hierarchy(value: unknown): HierarchyFilter {
-  // 1.0 stored one chosen value per numbered level. Preserve the selected names
-  // when upgrading to the new multi-select controls.
-  if (Array.isArray(value))
-    return {
-      values: sortedCharacters(levels(value).filter(Boolean)),
-      levels: [],
-    }
-  if (!value) return { values: [], levels: [] }
+  if (!value) return emptyHierarchy()
+  if (Array.isArray(value)) {
+    const values = sortedCharacters(levels(value).filter(Boolean))
+    return values.length
+      ? { ...emptyHierarchy(), legacy: { values, levels: [] } }
+      : emptyHierarchy()
+  }
+  const f = object(value)
+  if ('depth' in f) {
+    if (
+      !Number.isInteger(f.depth) ||
+      Number(f.depth) < 1 ||
+      Number(f.depth) > 5 ||
+      !Array.isArray(f.selections) ||
+      f.selections.length !== 5
+    )
+      throw new Error('筛选层级无效')
+    const selections = f.selections.map((v) =>
+      v === null
+        ? null
+        : Array.isArray(v)
+          ? [...new Set(v.map(string))]
+          : (() => {
+              throw new Error('筛选选项无效')
+            })(),
+    )
+    const result: HierarchyFilter = { depth: Number(f.depth), selections }
+    if (f.legacy) result.legacy = legacyHierarchy(f.legacy)
+    return result
+  }
+  const legacy = legacyHierarchy(f)
+  return legacy.values.length || legacy.levels.length
+    ? { ...emptyHierarchy(), legacy }
+    : emptyHierarchy()
+}
+function legacyHierarchy(value: unknown) {
   const f = object(value)
   if (
     !Array.isArray(f.levels) ||
@@ -257,6 +392,19 @@ function hierarchy(value: unknown): HierarchyFilter {
     levels: [...new Set(f.levels)] as number[],
   }
 }
+function tagSelection(value: unknown, legacy?: unknown): TagSelection {
+  if (value && !Array.isArray(value) && typeof value === 'object') {
+    const f = object(value)
+    if (typeof f.all !== 'boolean') throw new Error('标签筛选无效')
+    return { all: f.all, values: names(f.values) }
+  }
+  const values = Array.isArray(value)
+    ? names(value)
+    : typeof legacy === 'string' && legacy.trim()
+      ? [legacy.trim()]
+      : []
+  return { all: !values.length, values }
+}
 export function normalizeSettings(
   value: Partial<Settings> & Record<string, unknown>,
 ): Settings {
@@ -266,6 +414,7 @@ export function normalizeSettings(
     settings.visibleTime = value.visibleTime.map(Boolean)
   settings.charactersOpen = value.charactersOpen === true
   settings.countriesOpen = value.countriesOpen === true
+  settings.organizationsOpen = value.organizationsOpen === true
   settings.activeId = typeof value.activeId === 'string' ? value.activeId : ''
   if (value.draft) {
     const d = value.draft
@@ -323,7 +472,9 @@ export function validateTimeline(value: unknown): Timeline {
   )
     throw new Error('时间顺序格式错误')
   const timeOrder = rawOrder.map((values) => [
-    ...new Set((values as unknown[]).map((value) => string(value).trim()).filter(Boolean)),
+    ...new Set(
+      (values as unknown[]).map((value) => string(value).trim()).filter(Boolean),
+    ),
   ]) as TimeOrder
   return {
     id,
@@ -339,19 +490,28 @@ export function validateTimeline(value: unknown): Timeline {
       ...names(v.countries ?? []),
       ...nodes.flatMap((n) => n.countries),
     ]),
+    organizations: sortedCharacters([
+      ...names(v.organizations ?? []),
+      ...nodes.flatMap((n) => n.organizations),
+    ]),
     updatedAt: string(v.updatedAt),
     filters: {
       query: typeof f.query === 'string' ? f.query : '',
       location: hierarchy(f.location),
-      organization: hierarchy(f.organization),
+      organizations: f.organizations
+        ? tagSelection(f.organizations)
+        : tagSelection(
+            Array.isArray(f.organization)
+              ? f.organization.filter(Boolean)
+              : f.organization && typeof f.organization === 'object'
+                ? (f.organization as Record<string, unknown>).values
+                : undefined,
+          ),
       showNoLocation: f.showNoLocation !== false,
-      showNoOrganization: f.showNoOrganization !== false,
-      countries: Array.isArray(f.countries)
-        ? names(f.countries)
-        : typeof f.country === 'string' && f.country.trim()
-          ? [f.country.trim()]
-          : [],
-      character: typeof f.character === 'string' ? f.character : '',
+      countries: tagSelection(f.countries, f.country),
+      characters: tagSelection(f.characters, f.character),
+      ...(f.startTime ? { startTime: levels(f.startTime) } : {}),
+      ...(f.endTime ? { endTime: levels(f.endTime) } : {}),
     },
   }
 }
@@ -377,7 +537,16 @@ export function validateNode(raw: unknown, requireEvent = true): TimelineNode {
     time: levels(n.time),
     ...(n.endTime === undefined ? {} : { endTime: levels(n.endTime) }),
     location: levels(n.location),
-    organization: levels(n.organization),
+    organizations:
+      n.organizations === undefined
+        ? n.organization === undefined
+          ? []
+          : names(levels(n.organization).filter(Boolean))
+        : Array.isArray(n.organizations)
+          ? names(n.organizations.flat())
+          : (() => {
+              throw new Error('组织格式无效')
+            })(),
     countries: Array.isArray(n.countries)
       ? names(n.countries)
       : typeof n.country === 'string' && n.country.trim()
@@ -392,7 +561,7 @@ export function parseImport(value: unknown): Timeline[] {
   const v = object(value)
   if (
     v.format !== 'xushi' ||
-    ![1, 2, 3].includes(Number(v.version)) ||
+    ![1, 2, 3, 4].includes(Number(v.version)) ||
     !Array.isArray(v.timelines) ||
     !v.timelines.length ||
     v.timelines.length > MAX_TIMELINES

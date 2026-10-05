@@ -82,7 +82,11 @@ function read() {
       push('\n', marks)
       return
     }
-    if (['DIV', 'P'].includes(node.tagName) && runs.length && !runs.at(-1)!.text.endsWith('\n'))
+    if (
+      ['DIV', 'P'].includes(node.tagName) &&
+      runs.length &&
+      !runs.at(-1)!.text.endsWith('\n')
+    )
       push('\n', marks)
     node.childNodes.forEach((child) => walk(child, next))
   }
@@ -186,7 +190,6 @@ function paste(e: ClipboardEvent) {
       role="textbox"
       aria-label="事件内容"
       aria-multiline="true"
-      data-placeholder="输入事件内容"
       @input="read"
       @paste="paste"
       @drop.prevent

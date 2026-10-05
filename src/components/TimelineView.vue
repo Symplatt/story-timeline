@@ -218,7 +218,10 @@ defineExpose({ reveal })
             }}</span>
           </div>
           <div class="event-excerpt">
-            <RichText :runs="node.event" :limit="expanded.has(node.id) ? undefined : 100" />
+            <RichText
+              :runs="node.event"
+              :limit="expanded.has(node.id) ? undefined : 100"
+            />
           </div>
           <button
             v-if="Array.from(plainText(node.event)).length > 100"
@@ -235,7 +238,7 @@ defineExpose({ reveal })
           <div
             v-if="
               node.location.some(Boolean) ||
-              node.organization.some(Boolean) ||
+              node.organizations.length ||
               node.characters.length
             "
             class="event-meta"
@@ -244,24 +247,21 @@ defineExpose({ reveal })
               ><MapPin :size="14" /><span
                 ><template v-for="(value, index) in node.location" :key="index"
                   ><span v-if="value" class="hierarchy-value"
-                    ><small>{{ index + 1 }}</small
+                    ><sup>{{ index + 1 }}</sup
                     >{{ value }}</span
                   ></template
                 ></span
               ></span
             >
-            <span v-if="node.organization.some(Boolean)" title="组织"
-              ><Building2 :size="14" /><span
-                ><template v-for="(value, index) in node.organization" :key="index"
-                  ><span v-if="value" class="hierarchy-value"
-                    ><small>{{ index + 1 }}</small
-                    >{{ value }}</span
-                  ></template
-                ></span
+            <span v-if="node.organizations.length" title="组织"
+              ><Building2 :size="14" /><span class="organization-paths"
+                ><span v-for="name in node.organizations" :key="name">{{
+                  name
+                }}</span></span
               ></span
             >
             <span v-if="node.characters.length" title="角色"
-              ><Users :size="14" /><span>{{ node.characters.join(' · ') }}</span></span
+              ><Users :size="14" /><span>{{ node.characters.join('，') }}</span></span
             >
           </div>
         </div>
@@ -286,9 +286,19 @@ defineExpose({ reveal })
     </div>
   </div>
   <div v-if="nodes.length" class="scroll-controls">
-    <button class="icon-button" title="回到顶部" aria-label="回到顶部" @click="jump(false)">
+    <button
+      class="icon-button"
+      title="回到顶部"
+      aria-label="回到顶部"
+      @click="jump(false)"
+    >
       <ChevronUp :size="18" /></button
-    ><button class="icon-button" title="到达底部" aria-label="到达底部" @click="jump(true)">
+    ><button
+      class="icon-button"
+      title="到达底部"
+      aria-label="到达底部"
+      @click="jump(true)"
+    >
       <ChevronDown :size="18" />
     </button>
   </div>
