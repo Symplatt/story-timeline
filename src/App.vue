@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
+  Copy,
   GitBranch,
   Plus,
   Search,
@@ -29,6 +30,11 @@ import {
   MAX_TIMELINES,
   MAX_NODES,
   defaults,
+  assertTimeNamesUnique,
+  timeResolver,
+  visibleTimeLevels,
+  duplicateTimeline,
+  nodeTimeError,
   newTimeline,
   newNode,
   summary,
@@ -107,6 +113,11 @@ async function exclusive(action: () => Promise<void>) {
 function closeModal() {
   if (mutationBusy.value) return
   if (modal.value === 'node') cancelEdit()
+  else if (modal.value === 'library' && renamingId.value)
+    run(async () => {
+      await finishCopyName()
+      modal.value = ''
+    })
   else modal.value = ''
 }
 let revision = 0,
@@ -119,15 +130,26 @@ let revision = 0,
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value))
 const ordered = computed(() =>
   [...(timeline.value?.nodes || [])].sort(
-    createNodeComparator(timeline.value?.timeOrder),
+    createNodeComparator(timeline.value?.timeOrder, timeline.value?.nodes),
   ),
 )
+const resolveTime = computed(() =>
+  timeResolver(timeline.value?.timeOrder || [[], [], []], timeline.value?.nodes || []),
+)
+const usedTimeLevels = computed(() => visibleTimeLevels(timeline.value?.nodes || []))
 const visible = computed(() =>
-  ordered.value.filter((n) => matches(n, filters.value, timeline.value?.timeOrder)),
+  ordered.value.filter((n) =>
+    matches(n, filters.value, timeline.value?.timeOrder, resolveTime.value),
+  ),
 )
 const characters = computed(() => sortedCharacters(timeline.value?.characters || []))
 const countries = computed(() => sortedCharacters(timeline.value?.countries || []))
-const activeFilter = computed({ get: () => settings.value.filterPanel || '', set: (value: string) => { settings.value.filterPanel = value } })
+const activeFilter = computed({
+  get: () => settings.value.filterPanel || '',
+  set: (value: string) => {
+    settings.value.filterPanel = value
+  },
+})
 const importMode = ref('new')
 const filteredCatalog = computed(() =>
   catalog.value
@@ -139,24 +161,6 @@ const hierarchyPaths = computed(() =>
 )
 const organizations = computed(() =>
   sortedCharacters(timeline.value?.organizations || []),
-)
-const filterCount = computed(
-  () =>
-    Number(!!filters.value.query) +
-    Number(!filters.value.countries.all) +
-    Number(!filters.value.characters.all) +
-    Number(!filters.value.organizations.all) +
-    Number(!filters.value.showNoLocation) +
-    Number(
-      !!filters.value.startTime?.some(Boolean) || !!filters.value.endTime?.some(Boolean),
-    ) +
-    Number(
-      !!filters.value.location.legacy?.values.length ||
-        !!filters.value.location.legacy?.levels.length ||
-        filters.value.location.selections
-          .slice(0, filters.value.location.depth)
-          .some((v) => v !== null),
-    ),
 )
 function notify(message: string) {
   toast.value = message
@@ -324,10 +328,22 @@ function changeDraft(node: TimelineNode) {
     node: clone(node),
     isNew: isNew.value,
   }
-  if (!isNew.value && plainText(node.event).trim()) applyNode(node, false, false)
+  if (
+    !isNew.value &&
+    plainText(node.event).trim() &&
+    !nodeTimeError(node, timeline.value!.nodes)
+  )
+    applyNode(node, false, false)
 }
 function applyNode(node: TimelineNode, append: boolean, remember = true) {
   const t = timeline.value!
+  const previous = t.nodes.find((n) => n.id === node.id)
+  const sameTimes =
+    previous &&
+    JSON.stringify([previous.time, previous.endTime]) ===
+      JSON.stringify([node.time, node.endTime])
+  const validation = sameTimes ? '' : nodeTimeError(node, t.nodes)
+  if (validation) throw new Error(validation)
   const normalized = clone(node)
   normalized.time = normalized.time.map((v) => v.trim()) as TimelineNode['time']
   if (normalized.endTime)
@@ -371,7 +387,12 @@ async function finishNode(node: TimelineNode) {
   else notify('节点已保存；当前筛选条件隐藏了此节点')
 }
 function cancelEdit() {
-  if (!isNew.value && draft.value && plainText(draft.value.event).trim())
+  if (
+    !isNew.value &&
+    draft.value &&
+    plainText(draft.value.event).trim() &&
+    !nodeTimeError(draft.value, timeline.value!.nodes)
+  )
     applyNode(draft.value, false)
   editing.value = false
   draft.value = undefined
@@ -425,6 +446,35 @@ function askDeleteNode(node: TimelineNode) {
     await flush()
   })
 }
+const renamingId = ref(''),
+  copyTitle = ref('')
+async function copyTimeline(item: Summary) {
+  if (catalog.value.length >= MAX_TIMELINES) throw new Error('最多保存 1000 条时间轴')
+  await finishCopyName()
+  await flush()
+  const source = validateTimeline(await storage.read(item.id))
+  const copy = duplicateTimeline(source)
+  await storage.save(copy)
+  catalog.value.push(summary(copy))
+  libraryQuery.value = ''
+  renamingId.value = copy.id
+  copyTitle.value = copy.title
+  await nextTick()
+  const input = dialog.value?.querySelector<HTMLInputElement>('.copy-name')
+  input?.focus()
+  input?.select()
+}
+async function finishCopyName() {
+  const id = renamingId.value
+  if (!id) return
+  const title = copyTitle.value.trim()
+  renamingId.value = ''
+  if (!title) return
+  const copy = validateTimeline(await storage.read(id))
+  copy.title = title
+  await storage.save(copy)
+  catalog.value = catalog.value.map((item) => (item.id === id ? summary(copy) : item))
+}
 function askDeleteTimeline(item: Summary) {
   confirmTitle.value = `删除「${item.title}」？`
   confirmCopy.value = `将删除 ${item.count} 个节点。建议先导出 JSON 备份，此操作不能在界面撤销。`
@@ -450,6 +500,7 @@ async function confirm() {
 }
 async function prepareImport(raw: unknown) {
   const ts = parseImport(raw)
+  ts.forEach((t) => assertTimeNamesUnique(t.nodes))
   imported.value = ts
   importMode.value = 'new'
   modal.value = 'import'
@@ -508,7 +559,7 @@ async function exportJson(all: boolean) {
   } else timelines.push(clone(timeline.value!))
   const data = {
       format: 'xushi',
-      version: 4,
+      version: 5,
       exportedAt: new Date().toISOString(),
       timelines,
     },
@@ -538,7 +589,12 @@ watch(modal, async (value) => {
   } else previousFocus?.focus()
 })
 function keydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.isComposing && e.target instanceof HTMLInputElement && !['checkbox', 'radio', 'file'].includes(e.target.type)) {
+  if (
+    e.key === 'Enter' &&
+    !e.isComposing &&
+    e.target instanceof HTMLInputElement &&
+    !['checkbox', 'radio', 'file'].includes(e.target.type)
+  ) {
     e.preventDefault()
     e.stopPropagation()
     e.target.blur()
@@ -676,7 +732,15 @@ onUnmounted(() => {
       <p>{{ blocked }}</p>
       <p>请保留 %APPDATA%\Xushi\workspace 中的文件，修复后重新启动。</p>
     </div>
-    <div v-else class="workspace" :class="{ 'filter-open': !!activeFilter, 'location-open': activeFilter === 'location' }" :aria-busy="loading || !ready">
+    <div
+      v-else
+      class="workspace"
+      :class="{
+        'filter-open': !!activeFilter,
+        'location-open': activeFilter === 'location',
+      }"
+      :aria-busy="loading || !ready"
+    >
       <aside class="sidebar">
         <div class="project-card">
           <button
@@ -697,11 +761,6 @@ onUnmounted(() => {
           </button>
         </div>
         <div v-if="timeline" class="sidebar-scroll">
-          <div class="section-heading">
-            <Filter :size="15" /><span>筛选事件</span
-            ><span v-if="filterCount" class="count">{{ filterCount }}</span
->
-          </div>
           <div class="search-box">
             <Search :size="15" /><input
               v-model="filters.query"
@@ -715,12 +774,19 @@ onUnmounted(() => {
               <X :size="13" />
             </button>
           </div>
-          <TimeFilter v-model="filters" :order="timeline.timeOrder" :open="activeFilter === 'time'" @update:open="activeFilter = $event ? 'time' : ''" />
+          <TimeFilter
+            v-model="filters"
+            :order="timeline.timeOrder"
+            :nodes="timeline.nodes"
+            :open="activeFilter === 'time'"
+            @update:open="activeFilter = $event ? 'time' : ''"
+          />
           <HierarchyFilter
             v-model="filters.location"
             v-model:show-empty="filters.showNoLocation"
             label="地点"
             :paths="hierarchyPaths"
+            :labels="settings.locationLabels"
             :open="activeFilter === 'location'"
             @toggle="activeFilter = activeFilter === 'location' ? '' : 'location'"
             @close="activeFilter = ''"
@@ -728,27 +794,36 @@ onUnmounted(() => {
           /></HierarchyFilter>
           <TagFilter
             v-model="filters.countries"
-            :open="activeFilter === 'countries'" @update:open="activeFilter = $event ? 'countries' : ''"
+            :open="activeFilter === 'countries'"
+            @update:open="activeFilter = $event ? 'countries' : ''"
             label="国家"
             :options="countries"
             ><Flag :size="15"
           /></TagFilter>
           <TagFilter
             v-model="filters.organizations"
-            :open="activeFilter === 'organizations'" @update:open="activeFilter = $event ? 'organizations' : ''"
+            :open="activeFilter === 'organizations'"
+            @update:open="activeFilter = $event ? 'organizations' : ''"
             label="组织"
             :options="organizations"
             ><Building2 :size="15"
           /></TagFilter>
           <TagFilter
             v-model="filters.characters"
-            :open="activeFilter === 'characters'" @update:open="activeFilter = $event ? 'characters' : ''"
+            :open="activeFilter === 'characters'"
+            @update:open="activeFilter = $event ? 'characters' : ''"
             label="人物"
             :options="characters"
             ><Users :size="15"
           /></TagFilter>
         </div>
-        <button v-if="timeline" class="clear-filter-link clear-all-filters" @click="filters = emptyFilters()">清空筛选</button>
+        <button
+          v-if="timeline"
+          class="clear-filter-link clear-all-filters"
+          @click="filters = emptyFilters()"
+        >
+          清空筛选
+        </button>
       </aside>
       <div id="filter-dock" v-show="activeFilter && timeline" />
       <main class="main-area">
@@ -758,6 +833,8 @@ onUnmounted(() => {
             :key="timeline.id"
             ref="view"
             :nodes="visible"
+            :used-time-levels="usedTimeLevels"
+            :query="filters.query"
             :settings="settings"
             :selected-id="selectedId"
             :total="timeline.nodes.length"
@@ -844,6 +921,8 @@ onUnmounted(() => {
           v-if="modal === 'node' && draft"
           :key="editorKey"
           :node="draft"
+          :nodes="timeline?.nodes || []"
+          v-model:settings="settings"
           :is-new="isNew"
           :known-characters="characters"
           :known-countries="countries"
@@ -865,6 +944,20 @@ onUnmounted(() => {
                 ><GitBranch :size="22" /></span
               >{{ theme.name }}
             </button>
+          </div>
+          <div class="setting-row location-names">
+            <strong>地点层级名称</strong>
+            <div class="level-grid">
+              <label v-for="i in 5" :key="i"
+                >{{ i }}级<input
+                  v-model="settings.locationLabels[i - 1]"
+                  :aria-label="`地点${i}级名称`"
+                  @blur="
+                    settings.locationLabels[i - 1] =
+                      settings.locationLabels[i - 1].trim() || `${i}级`
+                  "
+              /></label>
+            </div>
           </div>
           <TimeOrderEditor
             v-if="timeline"
@@ -897,6 +990,7 @@ onUnmounted(() => {
               :class="{ active: item.id === timeline?.id }"
             >
               <button
+                v-if="renamingId !== item.id"
                 class="book-select"
                 :disabled="loading"
                 @click="
@@ -913,6 +1007,19 @@ onUnmounted(() => {
                     {{ new Date(item.updatedAt).toLocaleDateString('zh-CN') }}</small
                   ></span
                 ><span v-if="item.id === timeline?.id" class="count">当前</span></button
+              ><input
+                v-else
+                class="copy-name"
+                aria-label="副本时间轴名称"
+                v-model="copyTitle"
+                @blur="run(finishCopyName)"
+              /><button
+                class="icon-button"
+                :aria-label="'复制时间轴 ' + item.title"
+                :disabled="mutationBusy || catalog.length >= MAX_TIMELINES"
+                @click="run(() => exclusive(() => copyTimeline(item)))"
+              >
+                <Copy :size="16" /></button
               ><button
                 class="icon-button danger"
                 :aria-label="'删除时间轴 ' + item.title"
@@ -981,10 +1088,26 @@ onUnmounted(() => {
             }}
             个节点。
           </p>
-          <div v-if="imported.length === 1" class="import-mode" role="group" aria-label="导入方式">
-            <label><input type="radio" v-model="importMode" value="new" />新增时间轴</label>
-            <label><input type="radio" v-model="importMode" value="merge" :disabled="!timeline" />合并到当前时间轴<span v-if="timeline">：{{ timeline.title }}</span></label>
-            <p v-if="importMode === 'merge'" class="form-note">保留当前名称、简介和筛选；导入节点追加为新节点，已有时间顺序优先。</p>
+          <div
+            v-if="imported.length === 1"
+            class="import-mode"
+            role="group"
+            aria-label="导入方式"
+          >
+            <label
+              ><input type="radio" v-model="importMode" value="new" />新增时间轴</label
+            >
+            <label
+              ><input
+                type="radio"
+                v-model="importMode"
+                value="merge"
+                :disabled="!timeline"
+              />合并到当前时间轴<span v-if="timeline">：{{ timeline.title }}</span></label
+            >
+            <p v-if="importMode === 'merge'" class="form-note">
+              保留当前名称、简介和筛选；导入节点追加为新节点，已有时间顺序优先。
+            </p>
           </div>
           <div class="import-list">
             <p v-for="(t, i) in imported" :key="i">
@@ -1039,7 +1162,7 @@ onUnmounted(() => {
             </p>
             <p>
               <strong>国家、组织与人物</strong
-              >输入时以空格分隔，按字母／拼音排列，已有清单可折叠。
+              >输入时以逗号分隔，也兼容空格，按字母／拼音排列，已有清单可折叠。
             </p>
             <p>
               <strong>自动保存与备份</strong>修改后约 0.65 秒自动保存，Ctrl+S

@@ -2,6 +2,8 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   Clock3,
+  ArrowUpToLine,
+  ArrowDownToLine,
   MapPin,
   Users,
   Building2,
@@ -10,10 +12,13 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-vue-next'
-import { displayDate, plainText, type TimelineNode, type Settings } from '../model'
+import { timeDisplay, plainText, type TimelineNode, type Settings } from '../model'
 import RichText from './RichText.vue'
+import TextMatch from './TextMatch.vue'
 const props = defineProps<{
   nodes: TimelineNode[]
+  usedTimeLevels: boolean[]
+  query: string
   settings: Settings
   selectedId: string
   total: number
@@ -29,6 +34,17 @@ const scroll = ref<HTMLElement>(),
   height = ref(800),
   measurement = ref(0)
 const expanded = ref(new Set<string>())
+watch(
+  () => props.query,
+  (query) => {
+    const q = query.trim().toLocaleLowerCase()
+    if (q)
+      for (const node of props.nodes)
+        if (plainText(node.event).toLocaleLowerCase().indexOf(q) >= 100)
+          expanded.value.add(node.id)
+  },
+  { immediate: true },
+)
 const sizes = new Map<string, number>(),
   rows = new Map<string, HTMLElement>()
 let observer: ResizeObserver,
@@ -167,25 +183,21 @@ defineExpose({ reveal })
         :style="{ transform: `translateY(${offsets[start + i]}px)` }"
       >
         <div class="time-column">
-          <template v-for="(value, level) in node.time" :key="level"
-            ><div
-              v-if="value"
-              :class="{ 'time-major': level === 0 }"
-            >
-              {{ level === 3 ? displayDate(value) : value }}
-            </div></template
-          >
+          <template
+            v-for="(value, level) in timeDisplay(node.time, usedTimeLevels)"
+            :key="level"
+            ><div v-if="value" :class="{ 'time-major': level === 0 }">
+              <TextMatch :text="value" :query="query" /></div
+          ></template>
           <span v-if="node.time.every((v) => !v)" class="unknown-time">时间不确定</span>
 
           <template v-if="node.endTime"
             ><div class="range-separator" aria-label="至">—</div>
-            <template v-for="(value, level) in node.endTime" :key="'end-' + level"
-              ><div
-                v-if="value"
-                :class="{ 'time-major': level === 0 }"
-              >
-                {{ level === 3 ? displayDate(value) : value }}
-              </div></template
+            <template
+              v-for="(value, level) in timeDisplay(node.endTime, usedTimeLevels)"
+              :key="'end-' + level"
+              ><div v-if="value" :class="{ 'time-major': level === 0 }">
+                <TextMatch :text="value" :query="query" /></div></template
             ><span v-if="node.endTime.every((v) => !v)" class="unknown-time"
               >结束时间不确定</span
             ></template
@@ -201,18 +213,26 @@ defineExpose({ reveal })
           tabindex="0"
           :aria-label="`第 ${start + i + 1} 个事件`"
           @click.stop="emit('select', node)"
-          @dblclick.stop="expanded.add(node.id)"
+          @dblclick.stop="toggle(node.id)"
           @keydown.enter.self.prevent="emit('select', node)"
           @keydown.space.self.prevent="emit('select', node)"
         >
           <div v-if="node.countries.length" class="event-card-head">
-            <span v-for="country in node.countries" :key="country" class="country-tag">{{
-              country
-            }}</span>
+            <span
+              v-for="(country, index) in node.countries"
+              :key="country"
+              class="country-entry"
+              ><span class="country-tag"
+                ><TextMatch :text="country" :query="query" /></span
+              ><span v-if="index < node.countries.length - 1" class="tag-comma"
+                >，</span
+              ></span
+            >
           </div>
           <div class="event-excerpt">
             <RichText
               :runs="node.event"
+              :query="query"
               :limit="expanded.has(node.id) ? undefined : 100"
             />
           </div>
@@ -237,25 +257,19 @@ defineExpose({ reveal })
             class="event-meta"
           >
             <span v-if="node.location.some(Boolean)" title="地点"
-              ><MapPin :size="14" /><span
-                ><template v-for="(value, index) in node.location" :key="index"
-                  ><span v-if="value" class="hierarchy-value"
-                    ><sup>{{ index + 1 }}</sup
-                    >{{ value }}</span
-                  ></template
-                ></span
-              ></span
-            >
+              ><MapPin :size="14" /><span class="location-path"
+                ><TextMatch
+                  :text="node.location.filter(Boolean).join('-')"
+                  :query="query" /></span
+            ></span>
             <span v-if="node.organizations.length" title="组织"
-              ><Building2 :size="14" /><span class="organization-paths"
-                ><span v-for="name in node.organizations" :key="name">{{
-                  name
-                }}</span></span
-              ></span
-            >
+              ><Building2 :size="14" /><span class="organization-names"
+                ><TextMatch :text="node.organizations.join('，')" :query="query" /></span
+            ></span>
             <span v-if="node.characters.length" title="人物"
-              ><Users :size="14" /><span>{{ node.characters.join('，') }}</span></span
-            >
+              ><Users :size="14" /><span
+                ><TextMatch :text="node.characters.join('，')" :query="query" /></span
+            ></span>
           </div>
         </div>
         <div class="node-actions">
@@ -285,14 +299,14 @@ defineExpose({ reveal })
       aria-label="回到顶部"
       @click="jump(false)"
     >
-      <ChevronUp :size="18" /></button
+      <ArrowUpToLine :size="18" /></button
     ><button
       class="icon-button"
       title="到达底部"
       aria-label="到达底部"
       @click="jump(true)"
     >
-      <ChevronDown :size="18" />
+      <ArrowDownToLine :size="18" />
     </button>
   </div>
 </template>

@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import {
   newTimeline,
+  visibleTimeLevels,
+  timeDisplay,
+  displayClock,
+  timeParents,
+  updateTimeBound,
+  MISSING_TIME,
+  nodeTimeError,
+  duplicateTimeline,
+  type TimeOrder,
   newNode,
   compareNodes,
   createNodeComparator,
@@ -24,13 +33,16 @@ import {
 
 describe('single timeline merge', () => {
   it('preserves current metadata and order, appends independent nodes and tag registries', () => {
-    const current = newTimeline('当前'), incoming = newTimeline('导入')
+    const current = newTimeline('当前'),
+      incoming = newTimeline('导入')
     current.timeOrder = [['黎明', '混沌'], [], []]
     incoming.timeOrder = [['混沌', '黄昏', '黎明'], ['唐'], []]
     current.nodes = [node(['黎明'])]
     incoming.nodes = [node(['黄昏'])]
     incoming.nodes[0].id = current.nodes[0].id
-    incoming.countries = ['北境']; incoming.organizations = ['研究部']; incoming.characters = ['甲']
+    incoming.countries = ['北境']
+    incoming.organizations = ['研究部']
+    incoming.characters = ['甲']
     current.filters.query = '保留'
     const merged = mergeTimeline(current, incoming)
     expect(merged.id).toBe(current.id)
@@ -46,8 +58,9 @@ describe('single timeline merge', () => {
     expect(merged.characters).toEqual(['甲'])
   })
   it('rejects oversized merge before touching existing data', () => {
-    const current = newTimeline('当前'), incoming = newTimeline('导入')
-    current.nodes = Array.from({length: MAX_NODES}, () => node())
+    const current = newTimeline('当前'),
+      incoming = newTimeline('导入')
+    current.nodes = Array.from({ length: MAX_NODES }, () => node())
     incoming.nodes = [node()]
     expect(() => mergeTimeline(current, incoming)).toThrow('10000')
     expect(current.nodes).toHaveLength(MAX_NODES)
@@ -524,4 +537,134 @@ it('does not infer alphabetic order for unknown filter categories', () => {
       [],
     ]),
   ).toBe(false)
+})
+
+describe('1.5 time and data behavior', () => {
+  it('places an unassigned Ming before Qing by manual dynasty order without changing data', () => {
+    const ming = node(['', '明']),
+      qing = node(['中国近世', '清', '乾隆', '1']),
+      late = node(['中国近世', '清', '宣统', '3'])
+    const order: TimeOrder = [['中国近世'], ['明', '清'], ['乾隆', '宣统']]
+    expect(
+      [qing, late, ming].sort(createNodeComparator(order, [qing, late, ming])),
+    ).toEqual([ming, qing, late])
+    expect(ming.time[0]).toBe('')
+  })
+  it('sorting remains antisymmetric and transitive with sparse mixed ancestors', () => {
+    const nodes = [
+      node(['A', '甲']),
+      node(['B', '丙']),
+      node(['', '乙']),
+      node(['B']),
+      node(['', '', '历一', '1']),
+      node(['A', '甲', '历一', '1']),
+      node(['', '', '', '4']),
+      node(),
+    ]
+    const cmp = createNodeComparator([['A', 'B'], ['甲', '乙', '丙'], ['历一']], nodes)
+    for (const a of nodes)
+      for (const b of nodes) {
+        expect(Math.sign(cmp(a, b)) + Math.sign(cmp(b, a))).toBe(0)
+        for (const c of nodes)
+          if (cmp(a, b) <= 0 && cmp(b, c) <= 0) expect(cmp(a, c)).toBeLessThanOrEqual(0)
+      }
+  })
+  it('time placeholders omit globally unused and trailing layers', () => {
+    const a = node(['时代', '', '历法', '1.2.3']),
+      b = node(['', '朝代', '', '2'])
+    const used = visibleTimeLevels([a, b])
+    expect(timeDisplay(a.time, used)).toEqual(['时代', '???', '历法', '1年2月3日', ''])
+    expect(
+      timeDisplay(
+        node(['', '', '', '3']).time,
+        visibleTimeLevels([node(['', '', '', '3'])]),
+      ),
+    ).toEqual(['', '', '', '3年', ''])
+    expect(displayClock('17:00:73')).toBe('17:00')
+  })
+  it('time filter resets descendants and fills known or explicitly missing ancestors', () => {
+    const nodes = [node(['古代', '清', '乾隆']), node(['', '明', '洪武'])]
+    const parents = timeParents(nodes)
+    expect(
+      updateTimeBound(['古代', '清', '乾隆', '1', '08:00'], 1, '明', parents),
+    ).toEqual([MISSING_TIME, '明', '', '', ''])
+    expect(updateTimeBound(['', '', '', '', ''], 2, '乾隆', parents)).toEqual([
+      '古代',
+      '清',
+      '乾隆',
+      '',
+      '',
+    ])
+  })
+  it('rejects new conflicting parent names and clocks without dates', () => {
+    expect(nodeTimeError(node(['另一时代', '清']), [node(['古代', '清'])])).toContain(
+      '其他上级',
+    )
+    expect(nodeTimeError(node(['', '', '', '', '08:00']), [])).toContain('日期')
+    expect(
+      nodeTimeError(node(['古代', '清', '乾隆', '2', '08:00']), [node(['古代', '清'])]),
+    ).toBe('')
+  })
+  it('path selection preserves terminal ancestors and separates equal names under different parents', () => {
+    const a = node(),
+      b = node(),
+      c = node()
+    a.location = ['国', '省', '城', '', '']
+    b.location = ['国', '省', '城', '区', '']
+    c.location = ['另一国', '省', '城', '', '']
+    const filter = emptyFilters()
+    filter.location.paths = [JSON.stringify(a.location)]
+    expect(matches(a, filter)).toBe(true)
+    expect(matches(b, filter)).toBe(false)
+    expect(matches(c, filter)).toBe(false)
+    const t = newTimeline('地点')
+    t.nodes = [a, b, c]
+    t.filters = filter
+    expect(
+      validateTimeline(JSON.parse(JSON.stringify(t))).filters.location.paths,
+    ).toEqual(filter.location.paths)
+  })
+  it('copies full timeline independently with new identifiers', () => {
+    const source = newTimeline('原件')
+    source.nodes = [node(['时代'])]
+    source.filters.query = '事件'
+    const copy = duplicateTimeline(source)
+    expect(copy.title).toBe('原件的副本')
+    expect(copy.id).not.toBe(source.id)
+    expect(copy.nodes[0].id).not.toBe(source.nodes[0].id)
+    copy.nodes[0].event[0].text = '修改副本'
+    expect(source.nodes[0].event[0].text).toBe('事件')
+    expect(copy.filters).toEqual(source.filters)
+  })
+  it('persists editor expansion and customized location names', () => {
+    const settings = normalizeSettings({
+      countriesOpen: true,
+      organizationsOpen: true,
+      charactersOpen: true,
+      locationLabels: ['国家', '省', '', '街区', '建筑'],
+    })
+    expect(settings.locationLabels).toEqual(['国家', '省', '3级', '街区', '建筑'])
+    expect(
+      settings.charactersOpen && settings.countriesOpen && settings.organizationsOpen,
+    ).toBe(true)
+  })
+})
+
+describe('multi-value participation', () => {
+  it('accepts Chinese/English commas and legacy whitespace without duplicate tags', () => {
+    expect(characterList('甲，乙,丙 甲\n丁')).toEqual(['甲', '乙', '丙', '丁'])
+  })
+  it('matches any selected participant in each category, with categories combined', () => {
+    const n = node()
+    n.countries = ['甲国', '乙国']
+    n.organizations = ['组织甲', '组织乙']
+    n.characters = ['人物甲', '人物乙']
+    const f = emptyFilters()
+    f.countries = { all: false, values: ['丙国', '乙国'] }
+    f.organizations = { all: false, values: ['组织乙', '组织丙'] }
+    f.characters = { all: false, values: ['人物乙', '人物丙'] }
+    expect(matches(n, f)).toBe(true)
+    f.organizations.values = ['组织丙']
+    expect(matches(n, f)).toBe(false)
+  })
 })

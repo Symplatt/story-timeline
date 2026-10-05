@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onUnmounted } from 'vue'
-import { GripVertical } from 'lucide-vue-next'
+import { GripVertical, ArrowUpToLine, ArrowDownToLine } from 'lucide-vue-next'
 import { timeLabels, type TimeOrder } from '../model'
 const order = defineModel<TimeOrder>({ required: true })
 const drag = ref<{
@@ -97,6 +97,26 @@ onUnmounted(() => finish(false))
         >
           <span class="order-number">{{ index + 1 }}</span
           ><span class="order-name">{{ name }}</span
+          ><button
+            type="button"
+            class="order-jump"
+            :aria-label="`${name}置顶`"
+            title="置顶"
+            :disabled="index === 0"
+            @pointerdown.stop
+            @click.stop="reorder(level, index, 0)"
+          >
+            <ArrowUpToLine :size="16" /></button
+          ><button
+            type="button"
+            class="order-jump"
+            :aria-label="`${name}置底`"
+            title="置底"
+            :disabled="index === values.length - 1"
+            @pointerdown.stop
+            @click.stop="reorder(level, index, values.length - 1)"
+          >
+            <ArrowDownToLine :size="16" /></button
           ><GripVertical :size="16" />
         </li>
       </ol>
