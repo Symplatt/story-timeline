@@ -106,6 +106,7 @@ async function main() {
       () => document.querySelector('.event-card').getBoundingClientRect().height > 1000,
     )
     await page.getByRole('button', { name: '收起全文', exact: true }).click()
+    await click('全部展开')
     await click('到达底部')
     await page.locator('[data-node-id="stress-9999"]').waitFor()
     await page.waitForFunction(() => {
@@ -117,6 +118,11 @@ async function main() {
       )
     })
     assert((await page.locator('.event-card').count()) < 30)
+    assert.equal(await page.locator('[data-node-id="stress-9996"] .ellipsis').count(), 0)
+    await click('全部折叠')
+    await click('到达底部')
+    await page.locator('[data-node-id="stress-9999"]').waitFor()
+    assert.equal(await page.locator('[data-node-id="stress-9996"] .ellipsis').count(), 1)
     await page.screenshot({ path: path.join(out, 'stress-bottom.png') })
     await fill('搜索事件', '短事件 9999')
     await count(1)

@@ -1,5 +1,6 @@
 export const MAX_TIMELINES = 1000
 export const MAX_NODES = 10000
+export const PREVIEW_LIMIT = 200
 export const timeLabels = ['时代', '朝代', '历法', '日期', '时刻'] as const
 export const themes = [
   { id: 'mono', name: '黑白', color: '#161616', background: '#ffffff' },
@@ -15,6 +16,7 @@ export type TimeOrder = [string[], string[], string[]]
 export type TimeName = { level: number; name: string; ancestors: string[] }
 export interface TimelineNode {
   id: string
+  title: string
   time: Five
   endTime?: Five
   location: Five
@@ -112,6 +114,7 @@ export const newTimeline = (title: string): Timeline => ({
 })
 export const newNode = (): TimelineNode => ({
   id: uid(),
+  title: '',
   time: five(),
   location: five(),
   organizations: [],
@@ -221,7 +224,10 @@ export function createNodeComparator(
 const defaultComparator = createNodeComparator()
 export const compareNodes = (a: TimelineNode, b: TimelineNode) =>
   defaultComparator(a, b)
-export function preview(runs: Run[], limit = 100): { runs: Run[]; truncated: boolean } {
+export function preview(
+  runs: Run[],
+  limit = PREVIEW_LIMIT,
+): { runs: Run[]; truncated: boolean } {
   let left = limit
   const result: Run[] = []
   for (const run of runs) {
@@ -368,6 +374,7 @@ export function matches(
   return (
     !q ||
     [
+      node.title,
       plainText(node.event),
       ...node.time,
       ...timeDisplay(node.time, [true, true, true, true, true]),
@@ -596,6 +603,7 @@ export function validateNode(raw: unknown, requireEvent = true): TimelineNode {
   return {
     id,
     time: levels(n.time),
+    title: n.title === undefined ? '' : string(n.title),
     ...(n.endTime === undefined ? {} : { endTime: levels(n.endTime) }),
     location: levels(n.location),
     organizations:
@@ -622,7 +630,7 @@ export function parseImport(value: unknown): Timeline[] {
   const v = object(value)
   if (
     v.format !== 'xushi' ||
-    ![1, 2, 3, 4, 5, 6].includes(Number(v.version)) ||
+    ![1, 2, 3, 4, 5, 6, 7].includes(Number(v.version)) ||
     !Array.isArray(v.timelines) ||
     !v.timelines.length ||
     v.timelines.length > MAX_TIMELINES

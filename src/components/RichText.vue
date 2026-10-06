@@ -26,27 +26,42 @@ const content = computed(() => {
     const boundaries = [
       ...new Set([start, end, ...intervals.flat().filter((n) => n > start && n < end)]),
     ].sort((a, b) => a - b)
-    return boundaries
-      .slice(0, -1)
-      .map((a, i) => ({
-        text: run.text.slice(a - start, boundaries[i + 1] - start),
-        marks: run.marks,
-        hit: intervals.some(([lo, hi]) => a >= lo && a < hi),
-      }))
+    return boundaries.slice(0, -1).map((a, i) => ({
+      text: run.text.slice(a - start, boundaries[i + 1] - start),
+      marks: run.marks,
+      hit: intervals.some(([lo, hi]) => a >= lo && a < hi),
+    }))
   })
-  return { runs, truncated: shown.truncated }
+  // Paragraph wrappers affect reading layout only; saved runs and their marks stay intact.
+  const paragraphs: (typeof runs)[] = [[]]
+  for (const run of runs) {
+    const lines = run.text.split(/\r\n|\r|\n/)
+    lines.forEach((text, i) => {
+      if (i) paragraphs.push([])
+      if (text) paragraphs.at(-1)!.push({ ...run, text })
+    })
+  }
+  return { paragraphs, truncated: shown.truncated }
 })
 </script>
 <template>
   <span class="rich-text"
-    ><span
-      v-for="(run, i) in content.runs"
-      :key="i"
-      :class="run.marks"
-      :tabindex="run.marks.includes('spoiler') ? 0 : undefined"
-      :aria-label="run.marks.includes('spoiler') ? '屏蔽文字，悬停或聚焦查看' : undefined"
-      ><mark v-if="run.hit" class="search-hit">{{ run.text }}</mark
-      ><template v-else>{{ run.text }}</template></span
-    ><span v-if="content.truncated" class="ellipsis">…</span></span
+    ><span v-for="(paragraph, p) in content.paragraphs" :key="p" class="rich-paragraph"
+      ><span
+        v-for="(run, i) in paragraph"
+        :key="i"
+        :class="run.marks"
+        :tabindex="run.marks.includes('spoiler') ? 0 : undefined"
+        :aria-label="
+          run.marks.includes('spoiler') ? '屏蔽文字，悬停或聚焦查看' : undefined
+        "
+        ><mark v-if="run.hit" class="search-hit">{{ run.text }}</mark
+        ><template v-else>{{ run.text }}</template></span
+      ><span
+        v-if="content.truncated && p === content.paragraphs.length - 1"
+        class="ellipsis"
+        >…</span
+      ></span
+    ></span
   >
 </template>

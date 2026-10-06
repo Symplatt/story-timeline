@@ -70,6 +70,10 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
 </script>
 <template>
   <form class="node-form" @submit.prevent="valid && emit('done', copy())">
+    <label class="node-title-field"
+      ><span>标题 <small>（选填）</small></span>
+      <input v-model="draft.title" aria-label="节点标题" />
+    </label>
     <div class="section-label">事件 <span class="required">*</span></div>
     <RichEditor v-model="draft.event" />
     <p class="form-note">选中文字后设置格式；屏蔽文字在阅读时悬停可见。</p>

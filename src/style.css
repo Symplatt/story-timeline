@@ -524,7 +524,18 @@ input[type='checkbox'] {
 .event-excerpt {
   font-size: 15px;
   line-height: 1.9;
+  color: var(--event-text, var(--text));
+  cursor: default;
+  user-select: none;
 }
+.event-excerpt * { cursor: default; user-select: none; }
+.event-excerpt .spoiler:hover,
+.event-excerpt .spoiler:focus-visible { color: var(--event-text, var(--text)) !important; }
+.event-title { margin: 0 0 14px; font-size: 18px; font-weight: 700; line-height: 1.6; overflow-wrap: anywhere; }
+.rich-paragraph { display: block; min-height: 1.9em; }
+.rich-paragraph + .rich-paragraph { margin-top: 1.2em; }
+.node-form .node-title-field { margin-bottom: 28px; font-size: 13px; font-weight: 600; gap: 14px; }
+.node-title-field input { font-weight: 400; }
 .event-meta {
   margin-top: 17px;
   padding-top: 13px;

@@ -562,7 +562,7 @@ async function exportJson(all: boolean) {
   } else timelines.push(clone(timeline.value!))
   const data = {
       format: 'xushi',
-      version: 6,
+      version: 7,
       exportedAt: new Date().toISOString(),
       timelines,
     },
@@ -1158,8 +1158,8 @@ onUnmounted(() => {
               条时间轴，每条最多 10000 个节点。只有事件必填。
             </p>
             <p>
-              <strong>阅读与编辑</strong>时间轴上下滚动。超过 100
-              字的事件双击卡片或点击“显示全文”在原卡片展开；屏蔽文字悬停或键盘聚焦可见。节点旁的编辑、删除按钮在悬停或键盘聚焦时出现；删除节点立即生效。点击空白处取消选择。
+              <strong>阅读与编辑</strong>时间轴上下滚动。超过 200
+              字的事件双击卡片或点击“显示全文”在原卡片展开；右下悬浮栏可全部展开或折叠当前筛选结果。正文不可复制，需进入编辑节点窗口复制；标题选填。屏蔽文字悬停或键盘聚焦可见。节点旁的编辑、删除按钮在悬停或键盘聚焦时出现；删除节点立即生效。点击空白处取消选择。
             </p>
             <p>
               <strong>时间排序</strong

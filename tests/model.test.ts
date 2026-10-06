@@ -257,21 +257,24 @@ describe('time ranges and manual era order', () => {
   })
 })
 describe('event preview and filtering', () => {
-  it('counts 100 Unicode characters rather than UTF-16 units', () => {
+  it('counts 200 Unicode characters rather than UTF-16 units', () => {
     const runs = [
-      { text: '龙'.repeat(99) + '🐉结尾', marks: ['bold', 'spoiler'] as const },
+      {
+        text: '龙'.repeat(199) + '🐉结尾',
+        marks: ['bold', 'spoiler'] as const,
+      },
     ]
     const p = preview(runs as any)
-    expect(Array.from(p.runs[0].text)).toHaveLength(100)
+    expect(Array.from(p.runs[0].text)).toHaveLength(200)
     expect(p.runs[0].text.endsWith('🐉')).toBe(true)
     expect(p.truncated).toBe(true)
     expect(p.runs[0].marks).toEqual(['bold', 'spoiler'])
   })
-  it('does not ellipsize an exact 100-character event', () =>
-    expect(preview([{ text: 'x'.repeat(100), marks: [] }]).truncated).toBe(false))
+  it('does not ellipsize an exact 200-character event', () =>
+    expect(preview([{ text: 'x'.repeat(200), marks: [] }]).truncated).toBe(false))
   it('preserves formatting across cutoff boundaries', () => {
     const p = preview([
-      { text: 'a'.repeat(98), marks: ['underline'] },
+      { text: 'a'.repeat(198), marks: ['underline'] },
       { text: 'abcd', marks: ['italic'] },
     ])
     expect(p.runs[1].text).toBe('ab')
@@ -809,5 +812,38 @@ describe('1.6 persistent time ancestry', () => {
     const t = newTimeline('错误')
     t.timeNames = [{ level: 2, name: '历法', ancestors: ['时代'] }]
     expect(() => validateTimeline(t)).toThrow('归属层级')
+  })
+})
+
+describe('node titles', () => {
+  it('preserves title in validation, drafts, backups, copies and merges', () => {
+    const t = newTimeline('测试')
+    t.nodes = [{ ...node(), title: '独立标题 🐉' }]
+    const validated = validateTimeline(t)
+    expect(validated.nodes[0].title).toBe('独立标题 🐉')
+    expect(
+      normalizeSettings({
+        draft: { timelineId: t.id, isNew: true, node: t.nodes[0] },
+      }).draft!.node.title,
+    ).toBe('独立标题 🐉')
+    expect(
+      parseImport(
+        JSON.parse(JSON.stringify({ format: 'xushi', version: 7, timelines: [t] })),
+      )[0].nodes[0].title,
+    ).toBe('独立标题 🐉')
+    expect(duplicateTimeline(t).nodes[0].title).toBe('独立标题 🐉')
+    expect(mergeTimeline(newTimeline('目标'), t).nodes[0].title).toBe('独立标题 🐉')
+    expect(matches(t.nodes[0], { ...emptyFilters(), query: '独立标题' })).toBe(true)
+  })
+  it('migrates absent titles, rejects invalid types and keeps the event required', () => {
+    const t = newTimeline('旧数据')
+    t.nodes = [node()]
+    delete (t.nodes[0] as any).title
+    expect(validateTimeline(t).nodes[0].title).toBe('')
+    ;(t.nodes[0] as any).title = 123
+    expect(() => validateTimeline(t)).toThrow()
+    t.nodes[0].title = '只有标题'
+    t.nodes[0].event = []
+    expect(() => validateTimeline(t)).toThrow('事件不能为空')
   })
 })

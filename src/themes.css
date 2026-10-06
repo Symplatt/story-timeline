@@ -68,6 +68,7 @@
 }
 [data-theme='gold'] {
   color-scheme: dark;
+  --event-text: #b8b4aa;
   --text: #eee3c8;
   --green: #d7b76b;
   --green-dark: #e9ca80;

@@ -11,8 +11,16 @@ import {
   ChevronDown,
   Pencil,
   Trash2,
+  ChevronsUp,
+  ChevronsDown,
 } from 'lucide-vue-next'
-import { timeDisplay, plainText, type TimelineNode, type Settings } from '../model'
+import {
+  timeDisplay,
+  plainText,
+  PREVIEW_LIMIT,
+  type TimelineNode,
+  type Settings,
+} from '../model'
 import RichText from './RichText.vue'
 import TextMatch from './TextMatch.vue'
 const props = defineProps<{
@@ -40,7 +48,14 @@ watch(
     const q = query.trim().toLocaleLowerCase()
     if (q)
       for (const node of props.nodes)
-        if (plainText(node.event).toLocaleLowerCase().indexOf(q) >= 100)
+        if (
+          plainText(node.event).toLocaleLowerCase().includes(q) &&
+          !Array.from(plainText(node.event))
+            .slice(0, PREVIEW_LIMIT)
+            .join('')
+            .toLocaleLowerCase()
+            .includes(q)
+        )
           expanded.value.add(node.id)
   },
   { immediate: true },
@@ -96,7 +111,8 @@ onMounted(() => {
     for (const entry of entries) {
       const el = entry.target as HTMLElement,
         id = el.dataset.nodeId!
-      const size = entry.borderBoxSize[0]?.blockSize ?? el.getBoundingClientRect().height
+      const size =
+        entry.borderBoxSize[0]?.blockSize ?? el.getBoundingClientRect().height
       if (Math.abs((sizes.get(id) ?? 156) - size) > 0.5) {
         sizes.set(id, size)
         changed = true
@@ -109,7 +125,8 @@ onMounted(() => {
       scroll.value.scrollTop += delta
       top.value = scroll.value.scrollTop
     }
-    if (atEnd) nextTick(() => scroll.value?.scrollTo({ top: offsets.value.at(-1) || 0 }))
+    if (atEnd)
+      nextTick(() => scroll.value?.scrollTo({ top: offsets.value.at(-1) || 0 }))
   })
   rows.forEach((row) => observer.observe(row))
   containerObserver = new ResizeObserver(() => {
@@ -154,6 +171,21 @@ function reveal(id: string) {
 }
 function toggle(id: string) {
   expanded.value.has(id) ? expanded.value.delete(id) : expanded.value.add(id)
+}
+function expandAll(open: boolean) {
+  // Apply to every filtered node, including rows outside the virtual viewport.
+  for (const node of props.nodes)
+    open ? expanded.value.add(node.id) : expanded.value.delete(node.id)
+  atEnd = false
+  sizes.clear()
+  measurement.value++
+  jump(false)
+  nextTick(() =>
+    rows.forEach((row) => {
+      observer?.unobserve(row)
+      observer?.observe(row)
+    }),
+  )
 }
 defineExpose({ reveal })
 </script>
@@ -229,15 +261,24 @@ defineExpose({ reveal })
               ></span
             >
           </div>
-          <div class="event-excerpt">
+          <h3 v-if="node.title" class="event-title">
+            <TextMatch :text="node.title" :query="query" />
+          </h3>
+          <div
+            class="event-excerpt"
+            @copy.prevent
+            @cut.prevent
+            @dragstart.prevent
+            @selectstart.prevent
+          >
             <RichText
               :runs="node.event"
               :query="query"
-              :limit="expanded.has(node.id) ? undefined : 100"
+              :limit="expanded.has(node.id) ? undefined : PREVIEW_LIMIT"
             />
           </div>
           <button
-            v-if="Array.from(plainText(node.event)).length > 100"
+            v-if="Array.from(plainText(node.event)).length > PREVIEW_LIMIT"
             class="expand-event inline-button"
             :aria-expanded="expanded.has(node.id)"
             @click.stop="toggle(node.id)"
@@ -264,7 +305,9 @@ defineExpose({ reveal })
             ></span>
             <span v-if="node.organizations.length" title="组织"
               ><Building2 :size="14" /><span class="organization-names"
-                ><TextMatch :text="node.organizations.join('，')" :query="query" /></span
+                ><TextMatch
+                  :text="node.organizations.join('，')"
+                  :query="query" /></span
             ></span>
             <span v-if="node.characters.length" title="人物"
               ><Users :size="14" /><span
@@ -293,6 +336,22 @@ defineExpose({ reveal })
     </div>
   </div>
   <div v-if="nodes.length" class="scroll-controls">
+    <button
+      class="icon-button"
+      title="全部展开"
+      aria-label="全部展开"
+      @click="expandAll(true)"
+    >
+      <ChevronsDown :size="18" />
+    </button>
+    <button
+      class="icon-button"
+      title="全部折叠"
+      aria-label="全部折叠"
+      @click="expandAll(false)"
+    >
+      <ChevronsUp :size="18" />
+    </button>
     <button
       class="icon-button"
       title="回到顶部"
