@@ -449,7 +449,7 @@ describe('capacity and import', () => {
   it('rejects empty events and duplicate ids', () => {
     const t = newTimeline('作品')
     t.nodes = [newNode()]
-    expect(() => validateTimeline(t)).toThrow('事件不能为空')
+    expect(() => validateTimeline(t)).toThrow('标题和事件至少填写一项')
     t.nodes = [node()]
     t.nodes.push(t.nodes[0])
     expect(() => validateTimeline(t)).toThrow('重复')
@@ -835,7 +835,7 @@ describe('node titles', () => {
     expect(mergeTimeline(newTimeline('目标'), t).nodes[0].title).toBe('独立标题 🐉')
     expect(matches(t.nodes[0], { ...emptyFilters(), query: '独立标题' })).toBe(true)
   })
-  it('migrates absent titles, rejects invalid types and keeps the event required', () => {
+  it('migrates absent titles, rejects invalid types and permits a title without an event', () => {
     const t = newTimeline('旧数据')
     t.nodes = [node()]
     delete (t.nodes[0] as any).title
@@ -844,6 +844,13 @@ describe('node titles', () => {
     expect(() => validateTimeline(t)).toThrow()
     t.nodes[0].title = '只有标题'
     t.nodes[0].event = []
-    expect(() => validateTimeline(t)).toThrow('事件不能为空')
+    expect(validateTimeline(t).nodes[0].title).toBe('只有标题')
+    const restored = parseImport({ format: 'xushi', version: 8, timelines: [t] })[0]
+    expect(restored.nodes[0].event).toEqual([])
+    expect(duplicateTimeline(restored).nodes[0].title).toBe('只有标题')
+    expect(mergeTimeline(newTimeline('目标'), restored).nodes[0].title).toBe('只有标题')
+    t.nodes[0].title = '  '
+    t.nodes[0].event = [{ text: '\n  ', marks: [] }]
+    expect(() => validateTimeline(t)).toThrow('标题和事件至少填写一项')
   })
 })

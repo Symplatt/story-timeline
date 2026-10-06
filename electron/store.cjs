@@ -107,12 +107,14 @@ class Store {
         !validId(n.id) ||
         ids.has(n.id) ||
         !Array.isArray(n.event) ||
-        !n.event
-          .map((r) => (typeof r.text === 'string' ? r.text : ''))
-          .join('')
-          .trim()
+        (n.title !== undefined && typeof n.title !== 'string') ||
+        (!(n.title || '').trim() &&
+          !n.event
+            .map((r) => (typeof r.text === 'string' ? r.text : ''))
+            .join('')
+            .trim())
       )
-        throw new Error('节点标识或事件内容无效')
+        throw new Error('节点标识无效或标题和事件均为空')
       ids.add(n.id)
       for (const key of ['time', 'location'])
         if (

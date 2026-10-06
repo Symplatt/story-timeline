@@ -42,6 +42,15 @@ const scroll = ref<HTMLElement>(),
   height = ref(800),
   measurement = ref(0)
 const expanded = ref(new Set<string>())
+const actionNotice = ref(''),
+  noticeKey = ref(0)
+let noticeTimer: ReturnType<typeof setTimeout>
+function announce(message: string) {
+  clearTimeout(noticeTimer)
+  actionNotice.value = message
+  noticeKey.value++
+  noticeTimer = setTimeout(() => (actionNotice.value = ''), 1600)
+}
 watch(
   () => props.query,
   (query) => {
@@ -145,6 +154,7 @@ onMounted(() => {
   containerObserver.observe(scroll.value!)
 })
 onUnmounted(() => {
+  clearTimeout(noticeTimer)
   observer?.disconnect()
   containerObserver?.disconnect()
 })
@@ -185,6 +195,15 @@ function expandAll(open: boolean) {
       observer?.unobserve(row)
       observer?.observe(row)
     }),
+  )
+}
+function control(action: 'top' | 'bottom' | 'collapse' | 'expand') {
+  if (action === 'top' || action === 'bottom') jump(action === 'bottom')
+  else expandAll(action === 'expand')
+  announce(
+    { top: '已置顶', bottom: '已置底', collapse: '已全部收起', expand: '已全部展开' }[
+      action
+    ],
   )
 }
 defineExpose({ reveal })
@@ -250,21 +269,15 @@ defineExpose({ reveal })
           @keydown.space.self.prevent="emit('select', node)"
         >
           <div v-if="node.countries.length" class="event-card-head">
-            <span
-              v-for="(country, index) in node.countries"
-              :key="country"
-              class="country-entry"
-              ><span class="country-tag"
-                ><TextMatch :text="country" :query="query" /></span
-              ><span v-if="index < node.countries.length - 1" class="tag-comma"
-                >，</span
-              ></span
-            >
+            <span v-for="country in node.countries" :key="country" class="country-tag">
+              <TextMatch :text="country" :query="query" />
+            </span>
           </div>
-          <h3 v-if="node.title" class="event-title">
+          <h3 v-if="node.title.trim()" class="event-title">
             <TextMatch :text="node.title" :query="query" />
           </h3>
           <div
+            v-if="plainText(node.event).trim()"
             class="event-excerpt"
             @copy.prevent
             @cut.prevent
@@ -338,34 +351,44 @@ defineExpose({ reveal })
   <div v-if="nodes.length" class="scroll-controls">
     <button
       class="icon-button"
-      title="全部展开"
-      aria-label="全部展开"
-      @click="expandAll(true)"
+      title="置顶"
+      aria-label="回到顶部"
+      @click="control('top')"
     >
-      <ChevronsDown :size="18" />
+      <ArrowUpToLine :size="18" />
     </button>
     <button
       class="icon-button"
-      title="全部折叠"
+      title="置底"
+      aria-label="到达底部"
+      @click="control('bottom')"
+    >
+      <ArrowDownToLine :size="18" />
+    </button>
+    <button
+      class="icon-button"
+      title="收起"
       aria-label="全部折叠"
-      @click="expandAll(false)"
+      @click="control('collapse')"
     >
       <ChevronsUp :size="18" />
     </button>
     <button
       class="icon-button"
-      title="回到顶部"
-      aria-label="回到顶部"
-      @click="jump(false)"
+      title="展开"
+      aria-label="全部展开"
+      @click="control('expand')"
     >
-      <ArrowUpToLine :size="18" /></button
-    ><button
-      class="icon-button"
-      title="到达底部"
-      aria-label="到达底部"
-      @click="jump(true)"
-    >
-      <ArrowDownToLine :size="18" />
+      <ChevronsDown :size="18" />
     </button>
+  </div>
+  <div
+    v-if="actionNotice"
+    :key="noticeKey"
+    class="timeline-action-notice"
+    role="status"
+    aria-live="polite"
+  >
+    {{ actionNotice }}
   </div>
 </template>

@@ -4,7 +4,7 @@ import { Check, ChevronDown } from 'lucide-vue-next'
 import RichEditor from './RichEditor.vue'
 import {
   characterList,
-  plainText,
+  hasNodeContent,
   timeLabels,
   five,
   displayClock,
@@ -53,7 +53,7 @@ const timeError = computed(() =>
     ? ''
     : nodeTimeError(draft.value, props.nodes, props.timeNames),
 )
-const valid = computed(() => !!plainText(draft.value.event).trim() && !timeError.value)
+const valid = computed(() => hasNodeContent(draft.value) && !timeError.value)
 function copy(): TimelineNode {
   return JSON.parse(
     JSON.stringify({
@@ -71,10 +71,10 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
 <template>
   <form class="node-form" @submit.prevent="valid && emit('done', copy())">
     <label class="node-title-field"
-      ><span>标题 <small>（选填）</small></span>
+      ><span>标题 <small>（与事件至少填写一项）</small></span>
       <input v-model="draft.title" aria-label="节点标题" />
     </label>
-    <div class="section-label">事件 <span class="required">*</span></div>
+    <div class="section-label">事件 <small>（与标题至少填写一项）</small></div>
     <RichEditor v-model="draft.event" />
     <p class="form-note">选中文字后设置格式；屏蔽文字在阅读时悬停可见。</p>
     <div class="section-label divided">时间 <small>（选填）</small></div>

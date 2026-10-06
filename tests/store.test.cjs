@@ -84,3 +84,21 @@ test('path traversal is rejected', () =>
     assert.throws(() => store.file('../evil'))
     await assert.rejects(store.save({ ...timeline(), id: '../evil' }))
   }))
+
+test('title-only and event-only nodes persist; empty content is rejected without overwriting', () =>
+  fixture(async (store, dir) => {
+    const t = timeline()
+    const base = { time: ['', '', '', '', ''], location: ['', '', '', '', ''] }
+    t.nodes = [
+      { ...base, id: 'title-only', title: '只有标题', event: [] },
+      { ...base, id: 'event-only', event: [{ text: '只有事件', marks: [] }] },
+    ]
+    await store.save(t)
+    assert.deepEqual((await new Store(dir).read(t.id)).nodes, t.nodes)
+    const invalid = structuredClone(t)
+    invalid.nodes[0].title = '  '
+    await assert.rejects(store.save(invalid), /标题和事件/)
+    assert.deepEqual((await store.read(t.id)).nodes, t.nodes)
+    invalid.nodes[0].title = 123
+    await assert.rejects(store.save(invalid))
+  }))

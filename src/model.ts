@@ -124,6 +124,8 @@ export const newNode = (): TimelineNode => ({
   createdAt: new Date().toISOString(),
 })
 export const plainText = (runs: Run[]) => runs.map((r) => r.text).join('')
+export const hasNodeContent = (node: Pick<TimelineNode, 'title' | 'event'>) =>
+  !!(node.title.trim() || plainText(node.event).trim())
 export const natural = new Intl.Collator('zh-CN-u-co-pinyin', {
   numeric: true,
   sensitivity: 'base',
@@ -582,7 +584,7 @@ export function validateTimeline(value: unknown): Timeline {
     },
   }
 }
-export function validateNode(raw: unknown, requireEvent = true): TimelineNode {
+export function validateNode(raw: unknown, requireContent = true): TimelineNode {
   const n = object(raw),
     id = string(n.id)
   if (!/^[a-zA-Z0-9-]{1,80}$/.test(id)) throw new Error('节点标识无效或重复')
@@ -599,11 +601,13 @@ export function validateNode(raw: unknown, requireEvent = true): TimelineNode {
       throw new Error('不支持的事件格式')
     return { text: string(r.text), marks: [...new Set(r.marks)] as Mark[] }
   })
-  if (requireEvent && !plainText(event).trim()) throw new Error('事件不能为空')
+  const title = n.title === undefined ? '' : string(n.title)
+  if (requireContent && !hasNodeContent({ title, event }))
+    throw new Error('标题和事件至少填写一项')
   return {
     id,
     time: levels(n.time),
-    title: n.title === undefined ? '' : string(n.title),
+    title,
     ...(n.endTime === undefined ? {} : { endTime: levels(n.endTime) }),
     location: levels(n.location),
     organizations:
@@ -630,7 +634,7 @@ export function parseImport(value: unknown): Timeline[] {
   const v = object(value)
   if (
     v.format !== 'xushi' ||
-    ![1, 2, 3, 4, 5, 6, 7].includes(Number(v.version)) ||
+    ![1, 2, 3, 4, 5, 6, 7, 8].includes(Number(v.version)) ||
     !Array.isArray(v.timelines) ||
     !v.timelines.length ||
     v.timelines.length > MAX_TIMELINES

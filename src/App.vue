@@ -45,7 +45,7 @@ import {
   matches,
   emptyFilters,
   sortedCharacters,
-  plainText,
+  hasNodeContent,
   parseImport,
   validateTimeline,
   uid,
@@ -262,7 +262,7 @@ async function switchTimeline(id: string) {
   if (
     editing.value &&
     draft.value &&
-    (isNew.value || !plainText(draft.value.event).trim())
+    (isNew.value || !hasNodeContent(draft.value))
   )
     throw new Error('请先完成或取消正在编辑的节点，再切换时间轴')
   loading.value = true
@@ -331,12 +331,13 @@ function changeDraft(node: TimelineNode) {
   }
   if (
     !isNew.value &&
-    plainText(node.event).trim() &&
+    hasNodeContent(node) &&
     !nodeTimeError(node, timeline.value!.nodes, timeline.value!.timeNames)
   )
     applyNode(node, false, false)
 }
 function applyNode(node: TimelineNode, append: boolean, remember = true) {
+  if (!hasNodeContent(node)) throw new Error('标题和事件至少填写一项')
   const t = timeline.value!
   const previous = t.nodes.find((n) => n.id === node.id)
   const sameTimes =
@@ -393,7 +394,7 @@ function cancelEdit() {
   if (
     !isNew.value &&
     draft.value &&
-    plainText(draft.value.event).trim() &&
+    hasNodeContent(draft.value) &&
     !nodeTimeError(draft.value, timeline.value!.nodes, timeline.value!.timeNames)
   )
     applyNode(draft.value, false)
@@ -414,7 +415,7 @@ async function finishProject() {
     projectNew.value &&
     editing.value &&
     draft.value &&
-    (isNew.value || !plainText(draft.value.event).trim())
+    (isNew.value || !hasNodeContent(draft.value))
   )
     throw new Error('请先完成或取消当前节点，再创建时间轴')
   if (projectNew.value) {
@@ -526,7 +527,7 @@ async function commitImport() {
   if (
     editing.value &&
     draft.value &&
-    (isNew.value || !plainText(draft.value.event).trim())
+    (isNew.value || !hasNodeContent(draft.value))
   )
     throw new Error('请先完成或取消当前节点，再导入时间轴')
   await flush()
@@ -562,7 +563,7 @@ async function exportJson(all: boolean) {
   } else timelines.push(clone(timeline.value!))
   const data = {
       format: 'xushi',
-      version: 7,
+      version: 8,
       exportedAt: new Date().toISOString(),
       timelines,
     },
@@ -1155,11 +1156,11 @@ onUnmounted(() => {
             <p>
               <strong>时间轴与节点</strong
               >点击左上角时间轴名称切换或新建时间轴，右下角加号添加节点。最多 1000
-              条时间轴，每条最多 10000 个节点。只有事件必填。
+              条时间轴，每条最多 10000 个节点。标题和事件至少填写一项。
             </p>
             <p>
               <strong>阅读与编辑</strong>时间轴上下滚动。超过 200
-              字的事件双击卡片或点击“显示全文”在原卡片展开；右下悬浮栏可全部展开或折叠当前筛选结果。正文不可复制，需进入编辑节点窗口复制；标题选填。屏蔽文字悬停或键盘聚焦可见。节点旁的编辑、删除按钮在悬停或键盘聚焦时出现；删除节点立即生效。点击空白处取消选择。
+              字的事件双击卡片或点击“显示全文”在原卡片展开；右下悬浮栏可全部展开或折叠当前筛选结果。正文不可复制，需进入编辑节点窗口复制；标题和事件可只填写其中一项。屏蔽文字悬停或键盘聚焦可见。节点旁的编辑、删除按钮在悬停或键盘聚焦时出现；删除节点立即生效。点击空白处取消选择。
             </p>
             <p>
               <strong>时间排序</strong

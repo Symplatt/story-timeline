@@ -432,7 +432,8 @@ input[type='checkbox'] {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
-  padding: 34px 52px 110px 20px;
+  /* Transfer eight pixels of whitespace from left to right without changing width. */
+  padding: 34px 60px 110px 12px;
   overflow-anchor: none;
 }
 .virtual-track {
@@ -515,7 +516,11 @@ input[type='checkbox'] {
 }
 .country-tag {
   border: 1px solid var(--line);
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 7px;
+  line-height: 1.4;
   border-radius: 4px;
   font-size: 11px;
   color: var(--muted);
@@ -1089,8 +1094,8 @@ input[type='checkbox'] {
     width: 250px;
   }
   .timeline-viewport {
-    padding-left: 10px;
-    padding-right: 45px;
+    padding-left: 2px;
+    padding-right: 53px;
   }
   .timeline-row {
     grid-template-columns: 118px 30px minmax(0, 1fr) 34px;
@@ -1384,7 +1389,7 @@ input[type='checkbox'] {
 .clear-filter-link { color: var(--muted); text-decoration: underline; text-underline-offset: 4px; padding: 4px 0; justify-content: flex-start; }
 .clear-filter-link:hover { color: color-mix(in srgb, var(--muted) 65%, white); background: transparent; }
 .clear-all-filters { margin: auto 24px 22px; flex-shrink: 0; }
-.filter-open .timeline-viewport { padding: 22px 24px 110px; }
+.filter-open .timeline-viewport { padding: 22px 32px 110px 16px; }
 .filter-open .timeline-row { grid-template-columns: 18px minmax(0,1fr) 27px; }
 .filter-open .time-column { grid-column: 2; text-align: left; padding: 0 0 8px; display: flex; flex-wrap: wrap; gap: 0 8px; }
 .filter-open .axis { grid-column: 1; grid-row: 1 / span 2; height: 100%; }
@@ -1392,7 +1397,8 @@ input[type='checkbox'] {
 .filter-open .node-actions { grid-column: 3; grid-row: 2; }
 .scroll-controls, .add-node-button { z-index: 4; box-shadow: 0 3px 14px var(--shadow); }
 .event-card-head { margin-left: 0; }
-.country-tag { background: var(--green); color: var(--on-accent); border-color: var(--green); font-weight: 500; }
+.country-tag { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); border-color: var(--green); font-weight: 500; }
+.country-tag .rich-paragraph { display: inline; min-height: 0; margin: 0; }
 .time-order-list li > * { pointer-events: none; }
 .time-order-list li.dragging { opacity: 1; background: color-mix(in srgb, var(--green) 25%, var(--surface)); }
 .import-mode { display: flex; flex-direction: column; gap: 14px; margin: 18px 0; }
@@ -1440,8 +1446,6 @@ input[type='checkbox'] {
 .spoiler:not(:hover):not(:focus) .search-hit { background: transparent; color: transparent; }
 @media(max-width:1150px) { .location-open #filter-dock { flex-basis: 572px; width: 572px; } #filter-dock { flex-basis: 462px; width: 462px; } }
 
-.country-entry { display: inline-flex; align-items: center; }
-.tag-comma { color: var(--muted); margin-left: 2px; }
 /* Secondary filters stay quieter than the timeline content. */
 .filter-panel { color: color-mix(in srgb, var(--text) 72%, var(--muted)); }
 .filter-panel > header strong, .filter-panel legend, .place-tree th strong { font-weight: 500; color: inherit; }
@@ -1449,3 +1453,27 @@ input[type='checkbox'] {
 .filter-panel .select-all-button { font-weight: 500; color: inherit; }
 
 .place-tree th .select-all-button { padding: 4px 0; font-size: 13px; gap: 8px; }
+
+.event-title:last-child { margin-bottom: 0; }
+.timeline-action-notice {
+  position: fixed;
+  z-index: 90;
+  left: 50%;
+  bottom: 100px;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 4px 20px var(--shadow);
+  pointer-events: none;
+  animation: timeline-notice-fade 1.6s linear forwards;
+}
+@keyframes timeline-notice-fade {
+  0%, 35% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .timeline-action-notice { animation: none; }
+}
