@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { ChevronDown, CheckCheck, Minus, Search } from 'lucide-vue-next'
 import FilterPanel from './FilterPanel.vue'
-import { type TagSelection } from '../model'
+import { includesUntagged, toggleTag, type TagSelection } from '../model'
 const props = defineProps<{ label: string; options: string[] }>()
 const selection = defineModel<TagSelection>({ required: true })
 const open = defineModel<boolean>('open', { required: true })
@@ -15,19 +15,17 @@ const visible = computed(() =>
 const all = computed(
   () =>
     selection.value.all ||
-    (props.options.length > 0 &&
+    (includesUntagged(selection.value) &&
       props.options.every((name) => selection.value.values.includes(name))),
 )
-const partial = computed(() => !all.value && selection.value.values.length > 0)
-function toggle(name: string) {
-  const values = selection.value.all ? [...props.options] : [...selection.value.values]
-  const next = values.includes(name)
-    ? values.filter((value) => value !== name)
-    : [...values, name]
-  selection.value = {
-    all: next.length > 0 && props.options.every((value) => next.includes(value)),
-    values: next,
-  }
+const partial = computed(
+  () =>
+    !all.value &&
+    (includesUntagged(selection.value) ||
+      props.options.some((name) => selection.value.values.includes(name))),
+)
+function toggle(name?: string) {
+  selection.value = toggleTag(selection.value, props.options, name)
 }
 </script>
 <template>
@@ -68,6 +66,15 @@ function toggle(name: string) {
           >全选
         </button>
         <div class="filter-values">
+          <label v-if="!query || `未填写${label}`.includes(query)" class="check-label">
+            <input
+              type="checkbox"
+              :checked="includesUntagged(selection)"
+              :aria-label="`未填写${label}`"
+              @change="toggle()"
+            />
+            <span>未填写{{ label }}</span>
+          </label>
           <label v-for="name in visible" :key="name" class="check-label"
             ><input
               type="checkbox"
@@ -76,7 +83,10 @@ function toggle(name: string) {
               @change="toggle(name)"
             /><span>{{ name }}</span></label
           >
-          <p v-if="!visible.length" class="muted">
+          <p
+            v-if="!visible.length && query && !`未填写${label}`.includes(query)"
+            class="muted"
+          >
             {{ query ? '没有匹配项' : `暂无${label}` }}
           </p>
         </div>

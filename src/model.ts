@@ -29,6 +29,35 @@ export interface TimelineNode {
 export interface TagSelection {
   all: boolean
   values: string[]
+  includeEmpty?: boolean
+}
+// Older filters showed untagged nodes only in the unrestricted state.
+export const includesUntagged = (selection: TagSelection) =>
+  selection.all || selection.includeEmpty === true
+export const matchesTags = (values: string[], selection: TagSelection) =>
+  selection.all ||
+  (values.length === 0
+    ? includesUntagged(selection)
+    : values.some((value) => selection.values.includes(value)))
+export function toggleTag(
+  selection: TagSelection,
+  options: string[],
+  name?: string,
+): TagSelection {
+  const values = selection.all ? [...options] : [...selection.values]
+  const includeEmpty =
+    name === undefined ? !includesUntagged(selection) : includesUntagged(selection)
+  const next =
+    name === undefined
+      ? values
+      : values.includes(name)
+        ? values.filter((value) => value !== name)
+        : [...values, name]
+  return {
+    all: includeEmpty && options.every((value) => next.includes(value)),
+    values: next,
+    includeEmpty,
+  }
 }
 export interface HierarchyFilter {
   paths?: string[] | null
@@ -45,6 +74,10 @@ export interface Filters {
   characters: TagSelection
   startTime?: Five
   endTime?: Five
+  timeMode?: 'include' | 'exclude'
+  showNoTime?: boolean
+  showIncompleteTime?: boolean
+  locationPrecision?: number
 }
 export interface Timeline {
   id: string
@@ -317,35 +350,79 @@ export function matchesTimeRange(
   order: TimeOrder = emptyTimeOrder(),
   resolve: (t: Five) => Five = (t) => t,
 ): boolean {
-  const hasStart = start?.some(Boolean),
-    hasEnd = end?.some(Boolean)
-  if (!hasStart && !hasEnd) return true
-  if ([start, end].some((bound) => bound?.[4] && !bound[3])) return false
+  return matchesTimeFilter(
+    node,
+    { ...emptyFilters(), startTime: start, endTime: end },
+    order,
+    resolve,
+  )
+}
+/** Compare only supplied evidence. Sorting may infer positions for sparse dates;
+ * filtering must not turn those positions into an asserted historical fact. */
+function compareTimeEvidence(
+  time: Five,
+  bound: Five,
+  order: TimeOrder,
+): number | undefined {
+  const parts = (t: Five) => [
+    ...t.slice(0, 3),
+    ...(dateParts(t[3]) ?? [t[3]]).concat(['', '', '']).slice(0, 3),
+    ...displayClock(t[4]).split(':'),
+  ]
+  const a = parts(time),
+    b = parts(bound)
+  const last = b.reduce((n, v, i) => (v ? i : n), -1)
+  for (let i = 0; i <= last; i++) {
+    const x = a[i] || '',
+      y = b[i] || ''
+    if (!y) continue // An unrestricted level supplies no constraint.
+    if (y === MISSING_TIME) {
+      if (x) return undefined
+      continue
+    }
+    if (!x) return undefined
+    if (x === y) continue
+    if (i < 3) {
+      const ai = order[i].indexOf(x),
+        bi = order[i].indexOf(y)
+      return ai < 0 || bi < 0 ? undefined : Math.sign(ai - bi)
+    }
+    return natural.compare(x, y)
+  }
+  return 0
+}
+export function matchesTimeFilter(
+  node: TimelineNode,
+  f: Filters,
+  order: TimeOrder = emptyTimeOrder(),
+  resolve: (t: Five) => Five = (t) => t,
+): boolean {
+  const start = f.startTime?.some(Boolean) ? f.startTime : undefined
+  const end = f.endTime?.some(Boolean) ? f.endTime : undefined
+  if (!start && !end) return true
+  // Invalid ranges remain invalid in exclusion mode as well.
   if (
-    [start, end].some((bound) =>
-      bound
-        ?.slice(0, 3)
-        .some(
-          (value, i) => value && value !== MISSING_TIME && !order[i].includes(value),
-        ),
-    )
+    [start, end].some(
+      (b) =>
+        b &&
+        ((b[4] && !b[3]) ||
+          b
+            .slice(0, 3)
+            .some((v, i) => v && v !== MISSING_TIME && !order[i].includes(v))),
+    ) ||
+    (start && end && compareTimeBounds(start, end, order, resolve) > 0)
   )
     return false
-  const knownStart = node.time.some(Boolean),
-    knownEnd = node.endTime?.some(Boolean)
-  if (!knownStart && !knownEnd) return false
-  if (hasStart && hasEnd && compareTimeBounds(start!, end!, order, resolve) > 0)
-    return false
-  const eventEnd = node.endTime || node.time
-  if (
-    hasStart &&
-    eventEnd.some(Boolean) &&
-    compareTimeBounds(eventEnd, start!, order, resolve) < 0
-  )
-    return false
-  if (hasEnd && knownStart && compareTimeBounds(node.time, end!, order, resolve) > 0)
-    return false
-  return true
+  const last = node.endTime || node.time
+  if (!node.time.some(Boolean) && !last.some(Boolean)) return f.showNoTime === true
+  const lower = start ? compareTimeEvidence(last, start, order) : 0
+  const upper = end ? compareTimeEvidence(node.time, end, order) : 0
+  // A definite disjoint endpoint wins over an unknown other endpoint.
+  const outside =
+    (lower !== undefined && lower < 0) || (upper !== undefined && upper > 0)
+  if (!outside && (lower === undefined || upper === undefined))
+    return f.showIncompleteTime !== false
+  return f.timeMode === 'exclude' ? outside : !outside
 }
 export function matches(
   node: TimelineNode,
@@ -355,23 +432,15 @@ export function matches(
 ): boolean {
   if (!node.location.some(Boolean)) {
     if (!f.showNoLocation) return false
-  } else if (!matchesHierarchy(node.location, f.location)) return false
-  if (
-    !f.organizations.all &&
-    !node.organizations.some((value) => f.organizations.values.includes(value))
+  } else if (
+    !matchesHierarchy(node.location, f.location) ||
+    node.location.slice(0, f.locationPrecision || 0).some((value) => !value)
   )
     return false
-  if (!matchesTimeRange(node, f.startTime, f.endTime, timeOrder, resolve)) return false
-  if (
-    !f.countries.all &&
-    !node.countries.some((value) => f.countries.values.includes(value))
-  )
-    return false
-  if (
-    !f.characters.all &&
-    !node.characters.some((value) => f.characters.values.includes(value))
-  )
-    return false
+  if (!matchesTags(node.organizations, f.organizations)) return false
+  if (!matchesTimeFilter(node, f, timeOrder, resolve)) return false
+  if (!matchesTags(node.countries, f.countries)) return false
+  if (!matchesTags(node.characters, f.characters)) return false
   const q = f.query.trim().toLocaleLowerCase()
   return (
     !q ||
@@ -438,6 +507,30 @@ function hierarchy(value: unknown): HierarchyFilter {
     ? { ...emptyHierarchy(), legacy }
     : emptyHierarchy()
 }
+function timeFilterOptions(f: Record<string, unknown>): Partial<Filters> {
+  const result: Partial<Filters> = {}
+  if ('timeMode' in f) {
+    if (f.timeMode !== 'include' && f.timeMode !== 'exclude')
+      throw new Error('时间筛选模式无效')
+    result.timeMode = f.timeMode
+  }
+  for (const key of ['showNoTime', 'showIncompleteTime'] as const) {
+    if (key in f) {
+      if (typeof f[key] !== 'boolean') throw new Error('时间信息不足选项无效')
+      result[key] = f[key]
+    }
+  }
+  if ('locationPrecision' in f) {
+    if (
+      !Number.isInteger(f.locationPrecision) ||
+      Number(f.locationPrecision) < 0 ||
+      Number(f.locationPrecision) > 5
+    )
+      throw new Error('地点筛选精度无效')
+    result.locationPrecision = Number(f.locationPrecision)
+  }
+  return result
+}
 function legacyHierarchy(value: unknown) {
   const f = object(value)
   if (
@@ -454,7 +547,13 @@ function tagSelection(value: unknown, legacy?: unknown): TagSelection {
   if (value && !Array.isArray(value) && typeof value === 'object') {
     const f = object(value)
     if (typeof f.all !== 'boolean') throw new Error('标签筛选无效')
-    return { all: f.all, values: names(f.values) }
+    if (f.includeEmpty !== undefined && typeof f.includeEmpty !== 'boolean')
+      throw new Error('未填写标签的筛选状态无效')
+    return {
+      all: f.all,
+      values: names(f.values),
+      ...(f.includeEmpty === undefined ? {} : { includeEmpty: f.includeEmpty }),
+    }
   }
   const values = Array.isArray(value)
     ? names(value)
@@ -581,6 +680,7 @@ export function validateTimeline(value: unknown): Timeline {
       characters: tagSelection(f.characters, f.character),
       ...(f.startTime ? { startTime: levels(f.startTime) } : {}),
       ...(f.endTime ? { endTime: levels(f.endTime) } : {}),
+      ...timeFilterOptions(f),
     },
   }
 }
@@ -634,7 +734,7 @@ export function parseImport(value: unknown): Timeline[] {
   const v = object(value)
   if (
     v.format !== 'xushi' ||
-    ![1, 2, 3, 4, 5, 6, 7, 8].includes(Number(v.version)) ||
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(Number(v.version)) ||
     !Array.isArray(v.timelines) ||
     !v.timelines.length ||
     v.timelines.length > MAX_TIMELINES

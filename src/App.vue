@@ -563,7 +563,7 @@ async function exportJson(all: boolean) {
   } else timelines.push(clone(timeline.value!))
   const data = {
       format: 'xushi',
-      version: 8,
+      version: 9,
       exportedAt: new Date().toISOString(),
       timelines,
     },
@@ -793,6 +793,7 @@ onUnmounted(() => {
           <HierarchyFilter
             v-model="filters.location"
             v-model:show-empty="filters.showNoLocation"
+            v-model:precision="filters.locationPrecision"
             label="地点"
             :paths="hierarchyPaths"
             :labels="settings.locationLabels"

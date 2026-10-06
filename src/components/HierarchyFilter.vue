@@ -9,10 +9,16 @@ import {
   matchesHierarchy,
   natural,
 } from '../model'
-const props = defineProps<{ label: string; paths: Five[]; labels: Five; open: boolean }>()
+const props = defineProps<{
+  label: string
+  paths: Five[]
+  labels: Five
+  open: boolean
+}>()
 const emit = defineEmits<{ toggle: []; close: [] }>()
 const filter = defineModel<HierarchyFilter>({ required: true })
 const showEmpty = defineModel<boolean>('showEmpty', { required: true })
+const precision = defineModel<number>('precision', { default: 0 })
 const paths = computed(() =>
   [
     ...new Map(
@@ -132,9 +138,13 @@ function toggle(members: string[]) {
 function reset() {
   filter.value = emptyHierarchy()
   showEmpty.value = true
+  precision.value = 0
 }
 const active = computed(
-  () => !showEmpty.value || paths.value.some((p) => !matchesHierarchy(p, filter.value)),
+  () =>
+    !!precision.value ||
+    !showEmpty.value ||
+    paths.value.some((p) => !matchesHierarchy(p, filter.value)),
 )
 </script>
 <template>
@@ -163,8 +173,12 @@ const active = computed(
                   :disabled="!atLevel(level).length"
                   @click="toggle(atLevel(level))"
                 >
-                  <span class="all-checkbox" :class="{ checked: !!state(atLevel(level)) }"
-                    ><CheckCheck v-if="state(atLevel(level)) === true" :size="13" /><Minus
+                  <span
+                    class="all-checkbox"
+                    :class="{ checked: !!state(atLevel(level)) }"
+                    ><CheckCheck
+                      v-if="state(atLevel(level)) === true"
+                      :size="13" /><Minus
                       v-else-if="state(atLevel(level)) === 'mixed'"
                       :size="13" /></span
                   ><span class="place-level-name">{{ name || `${level + 1}级` }}</span>
@@ -199,6 +213,15 @@ const active = computed(
         <p v-if="!paths.length" class="muted">暂无地点</p>
       </div>
       <footer>
+        <label class="filter-policy"
+          >地点信息要求
+          <select v-model="precision" aria-label="地点信息要求">
+            <option :value="0">允许信息不完整</option>
+            <option v-for="(name, i) in labels" :key="i" :value="i + 1">
+              完整填写至 {{ name || `${i + 1}级` }}
+            </option>
+          </select>
+        </label>
         <label class="check-label"
           ><input v-model="showEmpty" type="checkbox" />显示无地点事件</label
         >

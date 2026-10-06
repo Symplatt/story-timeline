@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   newTimeline,
+  toggleTag,
+  includesUntagged,
   visibleTimeLevels,
   timeDisplay,
   displayClock,
@@ -852,5 +854,223 @@ describe('node titles', () => {
     t.nodes[0].title = '  '
     t.nodes[0].event = [{ text: '\n  ', marks: [] }]
     expect(() => validateTimeline(t)).toThrow('标题和事件至少填写一项')
+  })
+})
+
+describe('independent untagged filtering', () => {
+  for (const key of ['countries', 'organizations', 'characters'] as const) {
+    it(`${key}: toggling an unused name never changes untagged membership`, () => {
+      const empty = node(),
+        a = node(),
+        b = node(),
+        both = node(),
+        f = emptyFilters()
+      a[key] = ['A']
+      b[key] = ['B']
+      both[key] = ['A', 'B']
+      const options = ['A', 'B', 'unused']
+      f[key] = toggleTag(f[key], options, 'unused')
+      expect([empty, a, b, both].map((n) => matches(n, f))).toEqual([
+        true,
+        true,
+        true,
+        true,
+      ])
+      f[key] = toggleTag(f[key], options, 'A')
+      expect([empty, a, b, both].map((n) => matches(n, f))).toEqual([
+        true,
+        false,
+        true,
+        true,
+      ])
+      f[key] = toggleTag(f[key], options, 'B')
+      expect([empty, a, b, both].map((n) => matches(n, f))).toEqual([
+        true,
+        false,
+        false,
+        false,
+      ])
+      f[key] = toggleTag(f[key], options)
+      expect([empty, a, b, both].map((n) => matches(n, f))).toEqual([
+        false,
+        false,
+        false,
+        false,
+      ])
+      for (const name of options) f[key] = toggleTag(f[key], options, name)
+      expect(f[key].all).toBe(false)
+      expect(matches(empty, f)).toBe(false)
+      f[key] = toggleTag(f[key], options)
+      expect(f[key].all).toBe(true)
+    })
+    it(`${key}: preserves empty selection through JSON v9, copies and merge`, () => {
+      const t = newTimeline('筛选'),
+        n = node()
+      t.nodes = [n]
+      t[key] = ['unused']
+      t.filters[key] = toggleTag(t.filters[key], t[key], 'unused')
+      const restored = parseImport(
+        JSON.parse(JSON.stringify({ format: 'xushi', version: 9, timelines: [t] })),
+      )[0]
+      expect(includesUntagged(restored.filters[key])).toBe(true)
+      expect(matches(restored.nodes[0], restored.filters)).toBe(true)
+      expect(duplicateTimeline(restored).filters[key]).toEqual(restored.filters[key])
+      expect(mergeTimeline(restored, newTimeline('追加')).filters[key]).toEqual(
+        restored.filters[key],
+      )
+    })
+  }
+  it('retains old all/none semantics; rejects malformed empty selection', () => {
+    const t = newTimeline('旧筛选')
+    t.nodes = [node()]
+    t.filters.countries = { all: false, values: [] }
+    expect(matches(t.nodes[0], validateTimeline(t).filters)).toBe(false)
+    t.filters.countries = { all: true, values: [] }
+    expect(matches(t.nodes[0], validateTimeline(t).filters)).toBe(true)
+    ;(t.filters.countries as any).includeEmpty = 'yes'
+    expect(() => validateTimeline(t)).toThrow('筛选状态')
+    expect(toggleTag({ all: true, values: [] }, [])).toEqual({
+      all: false,
+      values: [],
+      includeEmpty: false,
+    })
+  })
+})
+
+describe('time evidence and explicit inclusion policies', () => {
+  const order: TimeOrder = [['古代'], ['明', '清'], ['康熙', '乾隆', '嘉庆']]
+  const bound = node(['古代', '清', '乾隆']).time
+  const filter = () => ({
+    ...emptyFilters(),
+    startTime: bound,
+    endTime: bound,
+    showNoTime: false,
+    showIncompleteTime: false,
+  })
+  it.each(['include', 'exclude'] as const)(
+    '%s respects independent unknown and coarse switches',
+    (timeMode) => {
+      const f = { ...filter(), timeMode }
+      expect(matches(node(['古代', '清', '乾隆']), f, order)).toBe(
+        timeMode === 'include',
+      )
+      for (const t of [
+        ['古代', '明'],
+        ['古代', '清', '康熙'],
+        ['古代', '清', '嘉庆'],
+      ])
+        expect(matches(node(t), f, order)).toBe(timeMode === 'exclude')
+      for (const t of [['古代', '清'], ['古代'], ['', '', '', '10']]) {
+        expect(matches(node(t), f, order)).toBe(false)
+        expect(matches(node(t), { ...f, showIncompleteTime: true }, order)).toBe(true)
+      }
+      expect(matches(node(), { ...f, showIncompleteTime: true }, order)).toBe(false)
+      expect(matches(node(), { ...f, showNoTime: true }, order)).toBe(true)
+    },
+  )
+  it('a dynasty-level query accepts the whole dynasty without requiring a calendar', () => {
+    const qing = node(['古代', '清']).time
+    expect(
+      matches(
+        node(['古代', '清']),
+        { ...filter(), startTime: qing, endTime: qing },
+        order,
+      ),
+    ).toBe(true)
+  })
+  it('does not use inferred sorting ancestors as factual filter evidence', () => {
+    expect(matches(node(['', '', '乾隆']), filter(), order, () => bound)).toBe(false)
+  })
+  it('compares year/month/day and minute precision, preserving definite disjointness', () => {
+    const f = {
+      ...emptyFilters(),
+      startTime: node(['', '', '', '2000.5.3', '17:00']).time,
+      endTime: node(['', '', '', '2000.5.3', '17:00']).time,
+      showIncompleteTime: false,
+    }
+    for (const date of ['2000', '2000.5', '2000.5.3']) {
+      expect(matches(node(['', '', '', date]), f)).toBe(false)
+      expect(
+        matches(node(['', '', '', date]), { ...f, showIncompleteTime: true }),
+      ).toBe(true)
+    }
+    expect(
+      matches(node(['', '', '', '1999']), { ...f, showIncompleteTime: true }),
+    ).toBe(false)
+    expect(matches(node(['', '', '', '2000.5.3', '17:00:30']), f)).toBe(true)
+    const interval = node(['', '', '', '1999'])
+    interval.endTime = node(['', '', '', '2001']).time
+    expect(matches(interval, f)).toBe(true)
+    expect(matches(interval, { ...f, timeMode: 'exclude' })).toBe(false)
+    interval.time = node().time
+    expect(matches(interval, f)).toBe(false)
+    interval.endTime = node(['', '', '', '1999']).time
+    expect(matches(interval, { ...f, timeMode: 'exclude' })).toBe(true)
+  })
+  it('rejects invalid bounds in either mode, and ignores mode without bounds', () => {
+    for (const timeMode of ['include', 'exclude'] as const) {
+      expect(matches(node(), { ...emptyFilters(), timeMode })).toBe(true)
+      expect(
+        matches(
+          node(),
+          {
+            ...filter(),
+            timeMode,
+            showNoTime: true,
+            startTime: node(['unknown']).time,
+          },
+          order,
+        ),
+      ).toBe(false)
+      expect(
+        matches(
+          node(),
+          {
+            ...filter(),
+            timeMode,
+            showNoTime: true,
+            startTime: node(['古代', '清', '嘉庆']).time,
+          },
+          order,
+        ),
+      ).toBe(false)
+    }
+  })
+  it('allows requiring complete place ancestry without changing the empty-place control', () => {
+    const f = { ...emptyFilters(), locationPrecision: 3 }
+    const n = node()
+    n.location = ['洲', '国', '', '', '']
+    expect(matches(n, f)).toBe(false)
+    n.location = ['洲', '国', '城', '', '']
+    expect(matches(n, f)).toBe(true)
+    n.location = ['', '国', '城', '', '']
+    expect(matches(n, f)).toBe(false)
+    n.location = node().location
+    expect(matches(n, f)).toBe(true)
+    expect(matches(n, { ...f, showNoLocation: false })).toBe(false)
+  })
+  it('round-trips filter policies through copies and JSON and rejects malformed controls', () => {
+    const t = newTimeline('policies')
+    t.filters = {
+      ...filter(),
+      timeMode: 'exclude',
+      showNoTime: true,
+      locationPrecision: 3,
+    }
+    for (const restored of [
+      validateTimeline(t),
+      duplicateTimeline(t),
+      ...parseImport({ format: 'xushi', version: 9, timelines: [t] }),
+    ])
+      expect(restored.filters).toEqual(t.filters)
+    for (const invalid of [
+      { timeMode: 'other' },
+      { showNoTime: 'true' },
+      { showIncompleteTime: 1 },
+      { locationPrecision: 6 },
+    ])
+      expect(() =>
+        validateTimeline({ ...t, filters: { ...t.filters, ...invalid } }),
+      ).toThrow()
   })
 })

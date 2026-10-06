@@ -24,6 +24,16 @@ const props = defineProps<{
 }>()
 const open = defineModel<boolean>('open', { required: true })
 const filters = defineModel<Filters>({ required: true })
+function reset() {
+  filters.value = {
+    ...filters.value,
+    startTime: five(),
+    endTime: five(),
+    timeMode: 'include',
+    showNoTime: false,
+    showIncompleteTime: true,
+  }
+}
 const parents = computed(() => timeParents(props.nodes, props.timeNames))
 const conflicting = computed(() =>
   parents.value.some((map) => [...map.values()].some((v) => v.length > 1)),
@@ -74,13 +84,38 @@ const reversed = computed(
         >已筛选</span
       ><ChevronDown :size="14" :class="{ rotated: open }" />
     </button>
-    <FilterPanel
-      v-if="open"
-      label="时间"
-      @close="open = false"
-      @clear="filters = { ...filters, startTime: five(), endTime: five() }"
-    >
-      <div class="filter-body">
+    <FilterPanel v-if="open" label="时间" @close="open = false" @clear="reset">
+      <div class="filter-body time-filter-body">
+        <label class="filter-policy"
+          >筛选方式
+          <select
+            :value="filters.timeMode || 'include'"
+            @change="
+              filters.timeMode = ($event.target as HTMLSelectElement).value as
+                'include' | 'exclude'
+            "
+            aria-label="时间筛选方式"
+          >
+            <option value="include">保留范围内</option>
+            <option value="exclude">排除范围内</option>
+          </select>
+        </label>
+        <label class="check-label"
+          ><input
+            type="checkbox"
+            :checked="filters.showNoTime === true"
+            @change="filters.showNoTime = ($event.target as HTMLInputElement).checked"
+          />显示完全未填写时间的事件</label
+        >
+        <label class="check-label"
+          ><input
+            type="checkbox"
+            :checked="filters.showIncompleteTime !== false"
+            @change="
+              filters.showIncompleteTime = ($event.target as HTMLInputElement).checked
+            "
+          />显示时间信息不足的事件</label
+        >
         <fieldset v-for="key in ['startTime', 'endTime'] as const" :key="key">
           <legend>{{ key === 'startTime' ? '开始时间' : '结束时间' }}</legend>
           <label v-for="(label, index) in timeLabels" :key="label"
@@ -150,7 +185,9 @@ const reversed = computed(
         <p v-if="!unknown && reversed" class="required" role="status">
           开始时间晚于结束时间。
         </p>
-        <p class="form-note">可只填写一端；包含边界及部分相交的事件。</p>
+        <p class="form-note">
+          可只填写一端；边界及部分相交均属范围内。信息不足指缺少相关层级或精度不够，无法判断是否相交；以上开关在两种模式下独立生效，无范围时显示全部。
+        </p>
       </div>
     </FilterPanel>
   </section>

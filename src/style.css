@@ -438,6 +438,7 @@ input[type='checkbox'] {
 }
 .virtual-track {
   position: relative;
+  transform: translateX(-8px);
   max-width: 1130px;
   margin: 0 auto;
 }
@@ -1418,6 +1419,7 @@ input[type='checkbox'] {
 .filter-panel > header .clear-filter-link { font-size: 13px; white-space: nowrap; }
 .filter-panel > header .icon-button { align-self: center; }
 .filter-panel .filter-body { overflow-y: auto; min-height: 0; padding-top: 0; }
+.filter-panel .time-filter-body { padding-right: 16px; scrollbar-gutter: stable; }
 .filter-panel .tag-filter-body { flex: 1; overflow: hidden; }
 .tag-search { display: flex; align-items: center; gap: 10px; margin: 0; flex-shrink: 0; }
 .tag-search input { min-width: 0; width: 100%; }
@@ -1477,3 +1479,6 @@ input[type='checkbox'] {
 @media (prefers-reduced-motion: reduce) {
   .timeline-action-notice { animation: none; }
 }
+
+.filter-policy { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.filter-policy select { flex: 1; min-width: 0; }
