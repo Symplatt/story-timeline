@@ -1,6 +1,6 @@
 {
   "name": "story-timeline",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "private": true,
   "description": "序时 · 小说与游戏作品时间轴",
   "author": "Symplatt",
@@ -55,7 +55,7 @@
       "perMachine": false,
       "allowElevation": false,
       "runAfterFinish": true,
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "序时",
       "deleteAppDataOnUninstall": false,

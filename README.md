@@ -2,15 +2,15 @@
 
 一个简单易用的故事时间轴设定工具。由 **Symplatt** 设计并主导开发，Codex 辅助实现。
 
-**当前版本：1.9.0** · Copyright © 2026 Symplatt. 版权所有。
+**当前版本：1.9.1** · Copyright © 2026 Symplatt. 版权所有。
 
 ## 安装与更新
 
-从 [GitHub Release](https://github.com/Symplatt/story-timeline/releases/latest) 下载 `Xushi-Setup-1.9.0.exe`，运行后从桌面“序时”快捷方式打开。安装包同时交付到本机 `D:\` 根目录。
+从 [GitHub Release](https://github.com/Symplatt/story-timeline/releases/latest) 下载 `Xushi-Setup-1.9.1.exe`，每次运行安装包都会创建或恢复桌面“序时”快捷方式，安装后从该快捷方式打开。安装包同时交付到本机 `D:\` 根目录。
 
 面向 Windows 10/11 x64，采用当前用户安装，无需自行安装 Node.js。软件图标采用用户提供的黑底金色笔尖图案，同步应用标题栏、Windows 程序与安装包、快捷方式及浏览器图标。安装程序写入 Windows“已安装的应用”及卸载注册表项。请关闭旧版后安装新版；固定应用标识 `com.symplatt.xushi` 和安装目录用于覆盖更新；参照织灵使用标准 NSIS 创建“序时”桌面与开始菜单快捷方式。
 
-作品数据独立保存在 `%APPDATA%\Xushi\workspace`。更新及卸载保留该目录；安装包和公开仓库不包含用户作品。1.9.0 兼容旧版单个国家字段、点分隔日期和 JSON 备份。旧版组织的非空层级名称转换为独立标签，原名称保留。更新前建议导出完整 JSON 备份。
+作品数据独立保存在 `%APPDATA%\Xushi\workspace`。更新及卸载保留该目录；安装包和公开仓库不包含用户作品。1.9.1 兼容旧版单个国家字段、点分隔日期和 JSON 备份。旧版组织的非空层级名称转换为独立标签，原名称保留。更新前建议导出完整 JSON 备份。
 
 ## 使用
 
@@ -67,11 +67,11 @@ npm.cmd run build        # TypeScript 检查及前端构建
 npm.cmd run pack:release # Windows x64 NSIS 安装包
 ```
 
-浏览器开发模式使用独立 IndexedDB，与桌面数据分开。真实 Electron 回归使用 `output/qa-1.9.0` 内的合成数据，按顺序运行：
+浏览器开发模式使用独立 IndexedDB，与桌面数据分开。真实 Electron 回归使用 `output/qa-1.9.1` 内的合成数据，按顺序运行：
 
 ```powershell
 node tests/desktop-1.9.cjs
-$env:XUSHI_QA_TAG='qa-1.9.0-stress'
+$env:XUSHI_QA_TAG='qa-1.9.1-stress'
 node tests/desktop-qa.cjs stress
 ```
 

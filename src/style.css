@@ -440,7 +440,7 @@ input[type='checkbox'] {
 }
 .virtual-track {
   position: relative;
-  transform: translateX(-8px);
+  transform: translateX(-16px);
   max-width: 1130px;
   margin: 0 auto;
 }

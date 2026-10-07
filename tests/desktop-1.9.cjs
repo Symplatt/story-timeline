@@ -4,7 +4,7 @@ const fs = require('node:fs/promises'),
   assert = require('node:assert/strict')
 const { Store } = require('../electron/store.cjs')
 const root = path.resolve(__dirname, '..'),
-  out = path.join(root, 'output', process.env.XUSHI_QA_TAG || 'qa-1.9.0'),
+  out = path.join(root, 'output', process.env.XUSHI_QA_TAG || 'qa-1.9.1'),
   profile = path.join(out, 'profile')
 let app, page
 const errors = []
@@ -263,10 +263,22 @@ async function main() {
   assert.equal(await page.locator('.country-tag').count(), 1)
   assert.equal(await page.locator('.event-meta > span').count(), 3)
   assert.equal((await read()).nodes.length, 2)
-  assert.equal(await app.evaluate(({ app }) => app.getVersion()), '1.9.0')
+  for (const width of [1480, 1060]) {
+    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 960), width)
+    const before = await page.locator('.event-card').first().boundingBox()
+    const track = page.locator('.virtual-track')
+    assert.equal(await track.evaluate(el => getComputedStyle(el).transform), 'matrix(1, 0, 0, 1, -16, 0)')
+    await track.evaluate(el => el.style.transform = 'translateX(-8px)')
+    const previous = await page.locator('.event-card').first().boundingBox()
+    assert.equal(previous.x - before.x, 8)
+    assert.equal(previous.width, before.width)
+    await track.evaluate(el => el.style.transform = '')
+    await page.screenshot({ path: path.join(out, `layout-${width}.png`) })
+  }
+  assert.equal(await app.evaluate(({ app }) => app.getVersion()), '1.9.1')
   assert.deepEqual(errors, [])
   const report = {
-    version: '1.9.0',
+    version: '1.9.1',
     checks: [
       'repeated dates/clocks create, autosave, export/import and restart',
       'genuine errors next to time heading, right aligned',
