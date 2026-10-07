@@ -132,6 +132,8 @@ input[type='checkbox'] {
   letter-spacing: 3px;
   font-weight: 600;
 }
+.brand-mark { background: transparent; }
+.brand-mark img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .brand-caption {
   color: var(--muted);
   font-size: 12px;
@@ -1482,3 +1484,15 @@ input[type='checkbox'] {
 
 .filter-policy { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .filter-policy select { flex: 1; min-width: 0; }
+.node-time-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; }
+.node-time-heading > span:first-child { flex-shrink: 0; }
+.node-time-heading .required { margin-left: auto; text-align: right; font-weight: 400; }
+.filter-panel .location-filter-footer { align-items: flex-end; justify-content: space-between; }
+.location-filter-footer .filter-policy { margin-bottom: 0; }
+.location-filter-footer > .check-label { margin-left: auto; }
+.time-empty-options { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.time-empty-options > .check-label { min-width: 0; }
+.time-empty-options > .check-label:last-child { margin-left: auto; }
+.time-empty-options input { flex-shrink: 0; }
+.field-visibility-options { display: flex; flex-wrap: wrap; gap: 16px 28px; }
+.field-visibility-options .check-label:has(input:disabled) { color: var(--muted); }

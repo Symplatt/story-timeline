@@ -3,17 +3,24 @@ export const MAX_NODES = 10000
 export const PREVIEW_LIMIT = 200
 export const timeLabels = ['时代', '朝代', '历法', '日期', '时刻'] as const
 export const themes = [
+  { id: 'gold', name: '黑金', color: '#d7b76b', background: '#24252c' },
   { id: 'mono', name: '黑白', color: '#161616', background: '#ffffff' },
   { id: 'grass', name: '草木', color: '#416b54', background: '#f0f4ea' },
   { id: 'pink', name: '烟粉', color: '#92717c', background: '#ded6d9' },
   { id: 'blue', name: '雾蓝', color: '#5f7786', background: '#d4dde2' },
-  { id: 'gold', name: '黑金', color: '#d7b76b', background: '#24252c' },
 ] as const
 export type Mark = 'bold' | 'underline' | 'italic' | 'strike' | 'spoiler'
 export type Run = { text: string; marks: Mark[] }
 export type Five = [string, string, string, string, string]
 export type TimeOrder = [string[], string[], string[]]
 export type TimeName = { level: number; name: string; ancestors: string[] }
+export const optionalFields = [
+  { key: 'location', label: '地点' },
+  { key: 'countries', label: '国家' },
+  { key: 'organizations', label: '组织' },
+  { key: 'characters', label: '人物' },
+] as const
+export type FieldVisibility = Record<(typeof optionalFields)[number]['key'], boolean>
 export interface TimelineNode {
   id: string
   title: string
@@ -99,6 +106,7 @@ export interface Summary {
   updatedAt: string
 }
 export interface Settings {
+  visibleFields: FieldVisibility
   locationLabels: Five
   theme: string
   filterPanel?: string
@@ -124,8 +132,14 @@ export const emptyFilters = (): Filters => ({
   characters: { all: true, values: [] },
 })
 export const defaults = (): Settings => ({
+  visibleFields: {
+    location: true,
+    countries: true,
+    organizations: true,
+    characters: true,
+  },
   locationLabels: ['1级', '2级', '3级', '4级', '5级'],
-  theme: 'mono',
+  theme: 'gold',
   visibleTime: [true, true, true, true, true],
   charactersOpen: false,
   countriesOpen: false,
@@ -566,6 +580,8 @@ export function normalizeSettings(
   value: Partial<Settings> & Record<string, unknown>,
 ): Settings {
   const settings = defaults()
+  for (const { key } of optionalFields)
+    settings.visibleFields[key] = value.visibleFields?.[key] !== false
   if (themes.some((t) => t.id === value.theme)) settings.theme = String(value.theme)
   if (Array.isArray(value.visibleTime) && value.visibleTime.length === 5)
     settings.visibleTime = value.visibleTime.map(Boolean)
@@ -592,6 +608,21 @@ export function normalizeSettings(
     }
   }
   return settings
+}
+/** Hidden fields keep their saved choices, but cannot silently filter the view. */
+export function filtersForVisibility(
+  filters: Filters,
+  visible: FieldVisibility,
+): Filters {
+  const result = { ...filters }
+  if (!visible.location) {
+    result.location = emptyHierarchy()
+    result.showNoLocation = true
+    result.locationPrecision = 0
+  }
+  for (const key of ['countries', 'organizations', 'characters'] as const)
+    if (!visible[key]) result[key] = { all: true, values: [] }
+  return result
 }
 export const summary = (t: Timeline): Summary => ({
   id: t.id,
@@ -844,6 +875,7 @@ export function reconcileTimeNames(
       const candidates = saved[level].get(name) || []
       const used = live[level].get(name)
       return (
+        level >= 3 ||
         candidates.length < 2 ||
         !used?.length ||
         used.includes(JSON.stringify(ancestors))
@@ -897,7 +929,9 @@ export function nodeTimeError(
     )
   for (const time of [node.time, node.endTime].filter(Boolean) as Five[]) {
     if (time[4].trim() && !time[3].trim()) return '填写时刻前，请先填写日期。'
-    for (let i = 1; i < 5; i++) {
+    // Dates and clock values repeat within independent calendar paths.
+    // Only dynasty/calendar names have a single persistent parent ownership.
+    for (let i = 1; i < 3; i++) {
       const name = timeNameKey(time[i], i)
       if (!name) continue
       const prefixes = parents[i].get(name)
@@ -993,7 +1027,7 @@ export function timeResolver(order: TimeOrder, nodes: TimelineNode[]) {
 
 export function assertTimeNamesUnique(nodes: TimelineNode[], known: TimeName[] = []) {
   const parents = timeParents(nodes, known)
-  for (let i = 1; i < 5; i++)
+  for (let i = 1; i < 3; i++)
     for (const [name, values] of parents[i])
       if (values.length > 1)
         throw new Error(

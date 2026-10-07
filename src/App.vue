@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import logo from '../build/icon.png'
 import {
   Copy,
   GitBranch,
@@ -30,6 +31,8 @@ import {
   MAX_TIMELINES,
   MAX_NODES,
   defaults,
+  optionalFields,
+  filtersForVisibility,
   assertTimeNamesUnique,
   timeResolver,
   visibleTimeLevels,
@@ -138,15 +141,16 @@ const resolveTime = computed(() =>
   timeResolver(timeline.value?.timeOrder || [[], [], []], timeline.value?.nodes || []),
 )
 const usedTimeLevels = computed(() => visibleTimeLevels(timeline.value?.nodes || []))
+const effectiveFilters = computed(() => filtersForVisibility(filters.value, settings.value.visibleFields))
 const visible = computed(() =>
   ordered.value.filter((n) =>
-    matches(n, filters.value, timeline.value?.timeOrder, resolveTime.value),
+    matches(n, effectiveFilters.value, timeline.value?.timeOrder, resolveTime.value),
   ),
 )
 const characters = computed(() => sortedCharacters(timeline.value?.characters || []))
 const countries = computed(() => sortedCharacters(timeline.value?.countries || []))
 const activeFilter = computed({
-  get: () => settings.value.filterPanel || '',
+  get: () => optionalFields.some(({key}) => key === settings.value.filterPanel && !settings.value.visibleFields[key]) ? '' : settings.value.filterPanel || '',
   set: (value: string) => {
     settings.value.filterPanel = value
   },
@@ -234,6 +238,7 @@ watch(
   settings,
   () => {
     document.documentElement.dataset.theme = settings.value.theme
+    if (settings.value.filterPanel && !activeFilter.value) settings.value.filterPanel = ''
     if (ready.value) {
       settingsRevision++
       schedule()
@@ -685,7 +690,7 @@ onUnmounted(() => {
   <div class="app-shell">
     <header class="app-header">
       <div class="brand">
-        <span class="brand-mark"><GitBranch :size="22" /></span><strong>序时</strong
+        <span class="brand-mark"><img :src="logo" alt="序时" /></span><strong>序时</strong
         ><span class="brand-divider" /><span class="brand-caption">作品时间轴</span>
       </div>
       <div class="header-actions">
@@ -791,6 +796,7 @@ onUnmounted(() => {
             @update:open="activeFilter = $event ? 'time' : ''"
           />
           <HierarchyFilter
+            v-if="settings.visibleFields.location"
             v-model="filters.location"
             v-model:show-empty="filters.showNoLocation"
             v-model:precision="filters.locationPrecision"
@@ -803,6 +809,7 @@ onUnmounted(() => {
             ><MapPin :size="15"
           /></HierarchyFilter>
           <TagFilter
+            v-if="settings.visibleFields.countries"
             v-model="filters.countries"
             :open="activeFilter === 'countries'"
             @update:open="activeFilter = $event ? 'countries' : ''"
@@ -811,6 +818,7 @@ onUnmounted(() => {
             ><Flag :size="15"
           /></TagFilter>
           <TagFilter
+            v-if="settings.visibleFields.organizations"
             v-model="filters.organizations"
             :open="activeFilter === 'organizations'"
             @update:open="activeFilter = $event ? 'organizations' : ''"
@@ -819,6 +827,7 @@ onUnmounted(() => {
             ><Building2 :size="15"
           /></TagFilter>
           <TagFilter
+            v-if="settings.visibleFields.characters"
             v-model="filters.characters"
             :open="activeFilter === 'characters'"
             @update:open="activeFilter = $event ? 'characters' : ''"
@@ -956,12 +965,23 @@ onUnmounted(() => {
               >{{ theme.name }}
             </button>
           </div>
+          <div class="setting-row field-visibility">
+            <strong>显示字段</strong>
+            <div class="field-visibility-options">
+              <label class="check-label"><input type="checkbox" checked disabled />时间</label>
+              <label v-for="field in optionalFields" :key="field.key" class="check-label">
+                <input v-model="settings.visibleFields[field.key]" type="checkbox" :aria-label="`显示${field.label}字段`" />{{ field.label }}
+              </label>
+            </div>
+          </div>
           <div class="setting-row location-names">
             <strong>地点层级名称</strong>
             <div class="level-grid">
               <label v-for="i in 5" :key="i"
-                >{{ i }}级<input
-                  v-model="settings.locationLabels[i - 1]"
+                ><input
+                  :value="settings.locationLabels[i - 1] === `${i}级` ? '' : settings.locationLabels[i - 1]"
+                  @input="settings.locationLabels[i - 1] = ($event.target as HTMLInputElement).value"
+                  :placeholder="`${i}级`"
                   :aria-label="`地点${i}级名称`"
                   @blur="
                     settings.locationLabels[i - 1] =

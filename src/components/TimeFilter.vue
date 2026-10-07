@@ -36,7 +36,7 @@ function reset() {
 }
 const parents = computed(() => timeParents(props.nodes, props.timeNames))
 const conflicting = computed(() =>
-  parents.value.some((map) => [...map.values()].some((v) => v.length > 1)),
+  parents.value.slice(0, 3).some((map) => [...map.values()].some((v) => v.length > 1)),
 )
 const resolve = computed(() => timeResolver(props.order, props.nodes))
 function update(key: 'startTime' | 'endTime', index: number, value: string) {
@@ -100,22 +100,24 @@ const reversed = computed(
             <option value="exclude">排除范围内</option>
           </select>
         </label>
-        <label class="check-label"
-          ><input
-            type="checkbox"
-            :checked="filters.showNoTime === true"
-            @change="filters.showNoTime = ($event.target as HTMLInputElement).checked"
-          />显示完全未填写时间的事件</label
-        >
-        <label class="check-label"
-          ><input
-            type="checkbox"
-            :checked="filters.showIncompleteTime !== false"
-            @change="
-              filters.showIncompleteTime = ($event.target as HTMLInputElement).checked
-            "
-          />显示时间信息不足的事件</label
-        >
+        <div class="time-empty-options">
+          <label class="check-label"
+            ><input
+              type="checkbox"
+              :checked="filters.showNoTime === true"
+              @change="filters.showNoTime = ($event.target as HTMLInputElement).checked"
+            />显示完全未填写时间的事件</label
+          >
+          <label class="check-label"
+            ><input
+              type="checkbox"
+              :checked="filters.showIncompleteTime !== false"
+              @change="
+                filters.showIncompleteTime = ($event.target as HTMLInputElement).checked
+              "
+            />显示时间信息不足的事件</label
+          >
+        </div>
         <fieldset v-for="key in ['startTime', 'endTime'] as const" :key="key">
           <legend>{{ key === 'startTime' ? '开始时间' : '结束时间' }}</legend>
           <label v-for="(label, index) in timeLabels" :key="label"

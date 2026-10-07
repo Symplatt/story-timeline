@@ -77,7 +77,10 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
     <div class="section-label">事件 <small>（与标题至少填写一项）</small></div>
     <RichEditor v-model="draft.event" />
     <p class="form-note">选中文字后设置格式；屏蔽文字在阅读时悬停可见。</p>
-    <div class="section-label divided">时间 <small>（选填）</small></div>
+    <div class="section-label divided node-time-heading">
+      <span>时间 <small>（选填）</small></span>
+      <span v-if="timeError" class="required" role="alert">{{ timeError }}</span>
+    </div>
     <div class="time-mode" role="group" aria-label="时间类型">
       <button
         type="button"
@@ -195,7 +198,6 @@ watch([draft, names, countries, organizations], () => emit('change', copy()), {
         {{ name }}</button
       ><span v-if="!knownCharacters.length" class="muted">暂无人物</span>
     </div>
-    <p v-if="timeError" class="required" role="alert">{{ timeError }}</p>
     <div class="form-actions">
       <small v-if="!isNew && !valid">尚未保存此修改</small
       ><span class="spacer" /><button

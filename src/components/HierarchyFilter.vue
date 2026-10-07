@@ -212,7 +212,7 @@ const active = computed(
         </table>
         <p v-if="!paths.length" class="muted">暂无地点</p>
       </div>
-      <footer>
+      <footer class="location-filter-footer">
         <label class="filter-policy"
           >地点信息要求
           <select v-model="precision" aria-label="地点信息要求">

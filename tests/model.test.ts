@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   newTimeline,
+  defaults,
+  filtersForVisibility,
   toggleTag,
   includesUntagged,
   visibleTimeLevels,
@@ -36,6 +38,55 @@ import {
   hierarchyOption,
   matchesTimeRange,
 } from '../src/model'
+
+describe('field visibility settings', () => {
+  it('migrates missing settings to visible, keeps saved theme and partial choices', () => {
+    expect(normalizeSettings({}).visibleFields).toEqual(defaults().visibleFields)
+    expect(normalizeSettings({}).theme).toBe('gold')
+    expect(
+      normalizeSettings({ theme: 'mono', visibleFields: { countries: false } } as any),
+    ).toMatchObject({
+      theme: 'mono',
+      visibleFields: {
+        location: true,
+        countries: false,
+        organizations: true,
+        characters: true,
+      },
+    })
+    const s = defaults()
+    s.visibleFields.characters = false
+    expect(normalizeSettings(JSON.parse(JSON.stringify(s)))).toEqual(s)
+  })
+  it('pauses only hidden filters without destroying saved selections, time or search', () => {
+    const f = emptyFilters(),
+      visible = defaults().visibleFields,
+      n = node()
+    f.countries = { all: false, values: [] }
+    f.showNoLocation = false
+    const before = structuredClone(f)
+    expect(matches(n, filtersForVisibility(f, visible))).toBe(false)
+    visible.countries = false
+    expect(matches(n, filtersForVisibility(f, visible))).toBe(false)
+    visible.location = false
+    expect(matches(n, filtersForVisibility(f, visible))).toBe(true)
+    expect(f).toEqual(before)
+    expect(matches(n, filtersForVisibility({ ...f, query: 'absent' }, visible))).toBe(
+      false,
+    )
+    expect(
+      matches(
+        n,
+        filtersForVisibility(
+          { ...f, startTime: node(['', '', '', '1234']).time },
+          visible,
+        ),
+      ),
+    ).toBe(false)
+    visible.countries = true
+    expect(matches(n, filtersForVisibility(f, visible))).toBe(false)
+  })
+})
 
 describe('single timeline merge', () => {
   it('preserves current metadata and order, appends independent nodes and tag registries', () => {
@@ -760,14 +811,14 @@ describe('1.6 persistent time ancestry', () => {
       ),
     ).toEqual(['乾隆'])
   })
-  it('checks date and clock ancestry using normalized date and minute values', () => {
+  it('allows repeated dates and clocks under different calendar paths', () => {
     const original = qing()
-    expect(
-      nodeTimeError(node(['近世', '清', '嘉庆', '1年5月6日']), [original]),
-    ).toContain('日期')
-    expect(
-      nodeTimeError(node(['近世', '清', '乾隆', '2', '08:00']), [original]),
-    ).toContain('时刻')
+    expect(nodeTimeError(node(['近世', '清', '嘉庆', '1年5月6日']), [original])).toBe(
+      '',
+    )
+    expect(nodeTimeError(node(['近世', '清', '乾隆', '2', '08:00']), [original])).toBe(
+      '',
+    )
     expect(
       nodeTimeError(node(['近世', '清', '乾隆', '1年5月6日', '08:00:59']), [original]),
     ).toBe('')
@@ -1072,5 +1123,47 @@ describe('time evidence and explicit inclusion policies', () => {
       expect(() =>
         validateTimeline({ ...t, filters: { ...t.filters, ...invalid } }),
       ).toThrow()
+  })
+})
+
+describe('reusable dates and clocks across calendar paths', () => {
+  const first = () => node(['古代', '清', '乾隆', '1234', '08:00'])
+  const second = () => node(['古代', '清', '雍正', '1234', '08:00'])
+  it('allows start/end dates and clocks across calendars while preserving named ancestry constraints', () => {
+    const a = first(),
+      b = second()
+    a.endTime = b.time
+    expect(nodeTimeError(a, [])).toBe('')
+    expect(() => assertTimeNamesUnique([a, b])).not.toThrow()
+    const conflicting = node(['另一时代', '清', '雍正', '1234', '08:00'])
+    expect(nodeTimeError(conflicting, [a])).toContain('朝代')
+    expect(nodeTimeError(node(['古代', '清', '雍正', '', '08:00']), [a])).toContain(
+      '日期',
+    )
+  })
+  it('keeps all existing date paths across load, import, duplicate, and deletion reconciliation', () => {
+    const t = newTimeline('重复日期')
+    t.nodes = [first(), second()]
+    t.timeNames = mergeTimeNames([], t.nodes)
+    const loaded = parseImport({ format: 'xushi', version: 9, timelines: [t] })[0]
+    expect(() => assertTimeNamesUnique(loaded.nodes, loaded.timeNames)).not.toThrow()
+    expect(loaded.timeNames).toEqual(t.timeNames)
+    expect(duplicateTimeline(loaded).timeNames).toEqual(t.timeNames)
+    expect(reconcileTimeNames(loaded.timeNames, [loaded.nodes[0]])).toEqual(t.timeNames)
+  })
+  it('merges reusable values even when the old registry outlives its last node', () => {
+    const current = newTimeline('乾隆'),
+      incoming = newTimeline('雍正')
+    current.timeNames = mergeTimeNames([], [first()])
+    incoming.nodes = [second()]
+    const merged = mergeTimeline(current, incoming)
+    expect(merged.nodes).toHaveLength(1)
+    expect(nodeTimeError(second(), [], current.timeNames)).toBe('')
+    expect(
+      merged.timeNames!.filter((x) => x.level === 3 && x.name === '1234年'),
+    ).toHaveLength(2)
+    expect(
+      merged.timeNames!.filter((x) => x.level === 4 && x.name === '08:00'),
+    ).toHaveLength(2)
   })
 })

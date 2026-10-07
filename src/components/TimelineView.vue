@@ -268,7 +268,10 @@ defineExpose({ reveal })
           @keydown.enter.self.prevent="emit('select', node)"
           @keydown.space.self.prevent="emit('select', node)"
         >
-          <div v-if="node.countries.length" class="event-card-head">
+          <div
+            v-if="settings.visibleFields.countries && node.countries.length"
+            class="event-card-head"
+          >
             <span v-for="country in node.countries" :key="country" class="country-tag">
               <TextMatch :text="country" :query="query" />
             </span>
@@ -304,25 +307,31 @@ defineExpose({ reveal })
           </button>
           <div
             v-if="
-              node.location.some(Boolean) ||
-              node.organizations.length ||
-              node.characters.length
+              (settings.visibleFields.location && node.location.some(Boolean)) ||
+              (settings.visibleFields.organizations && node.organizations.length) ||
+              (settings.visibleFields.characters && node.characters.length)
             "
             class="event-meta"
           >
-            <span v-if="node.location.some(Boolean)" title="地点"
+            <span
+              v-if="settings.visibleFields.location && node.location.some(Boolean)"
+              title="地点"
               ><MapPin :size="14" /><span class="location-path"
                 ><TextMatch
                   :text="node.location.filter(Boolean).join('-')"
                   :query="query" /></span
             ></span>
-            <span v-if="node.organizations.length" title="组织"
+            <span
+              v-if="settings.visibleFields.organizations && node.organizations.length"
+              title="组织"
               ><Building2 :size="14" /><span class="organization-names"
                 ><TextMatch
                   :text="node.organizations.join('，')"
                   :query="query" /></span
             ></span>
-            <span v-if="node.characters.length" title="人物"
+            <span
+              v-if="settings.visibleFields.characters && node.characters.length"
+              title="人物"
               ><Users :size="14" /><span
                 ><TextMatch :text="node.characters.join('，')" :query="query" /></span
             ></span>
