@@ -4,7 +4,7 @@ const fs = require('node:fs/promises'),
   assert = require('node:assert/strict')
 const { Store } = require('../electron/store.cjs')
 const root = path.resolve(__dirname, '..'),
-  out = path.join(root, 'output', process.env.XUSHI_QA_TAG || 'qa-1.9.1'),
+  out = path.join(root, 'output', process.env.XUSHI_QA_TAG || 'qa-1.9.2'),
   profile = path.join(out, 'profile')
 let app, page
 const errors = []
@@ -273,12 +273,20 @@ async function main() {
     assert.equal(previous.x - before.x, 8)
     assert.equal(previous.width, before.width)
     await track.evaluate(el => el.style.transform = '')
+    const row = page.locator('.timeline-row').first()
+    const narrowed = await page.locator('.event-card').first().boundingBox()
+    await row.evaluate(el => el.style.paddingRight = '0px')
+    const original = await page.locator('.event-card').first().boundingBox()
+    assert.equal(original.x, narrowed.x)
+    assert.equal(original.width - narrowed.width, 32)
+    await row.evaluate(el => el.style.paddingRight = '')
+
     await page.screenshot({ path: path.join(out, `layout-${width}.png`) })
   }
-  assert.equal(await app.evaluate(({ app }) => app.getVersion()), '1.9.1')
+  assert.equal(await app.evaluate(({ app }) => app.getVersion()), '1.9.2')
   assert.deepEqual(errors, [])
   const report = {
-    version: '1.9.1',
+    version: '1.9.2',
     checks: [
       'repeated dates/clocks create, autosave, export/import and restart',
       'genuine errors next to time heading, right aligned',
